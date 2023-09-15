@@ -97,17 +97,10 @@ def slack_respond_with_general_agent(agent, ack, app, say, body):
     """
 
     # Acknowledge user's message
-    ack()
     value = body['text']
     channel = body["channel_id"]
     ack_message_id = send_slack_message_and_return_message_id(
         app=app, channel=channel, message=get_random_thinking_message())
-
-    # If user didn't include a URL or URLs, then abort
-    if (value == "" or value is None):
-        say("Please enter a query for ChatGPT.")
-        return
-
 
     # Get the conversation history (last 5 messages)
     messages_history = []

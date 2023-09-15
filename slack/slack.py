@@ -6,6 +6,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from ai.ai_functions import load_urls_and_overwrite_index
 from ai.ai_agents import initialize_retrieval_agent, initialize_general_agent
 from slack.slack_utils import is_dm
+from slack.slack_utils import get_random_thinking_message
 from slack.slack_functions import slack_respond_with_agent
 
 load_dotenv()
@@ -50,6 +51,19 @@ def handle_document_upload(body, say, ack):
     load_urls_and_overwrite_index(value)
 
     say("I'm done uploading the document! :white_check_mark:")
+
+@app.command("/ai")
+def handle_ai_query(body, say, ack):
+    ack()
+    value = body['text']
+
+    # If user didn't include a URL or URLs, then abort
+    if (value == "" or value is None):
+        say("Please enter a query for ChatGPT.")
+        return
+
+    say(get_random_thinking_message())
+    slack_respond_with_agent(agent=general_agent, ack=ack, app=app, say=say, body=body)
 
 @app.command("/bot")
 def handle_bot_query(body, say, ack):

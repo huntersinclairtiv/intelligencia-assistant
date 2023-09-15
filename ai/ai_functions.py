@@ -6,7 +6,6 @@ from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.callbacks import get_openai_callback
-from langchain.callbacks.base import CallbackManager
 from langchain.prompts import PromptTemplate
 from langchain import LLMChain
 from utils import format_sources, remove_folder

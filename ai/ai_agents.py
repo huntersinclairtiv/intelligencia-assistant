@@ -17,6 +17,9 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 llm = ChatOpenAI(max_retries=3, temperature=0,  # type: ignore
                  model_name=llm_model_type)
 
+llm_simple = ChatOpenAI(max_retries=3, temperature=0.8,  # type: ignore
+                 model_name=llm_model_type)
+
 
 def initialize_conversational_agent(tools: List = [], is_agent_verbose: bool = True, max_iterations: int = 3, return_thought_process: bool = False):
     memory = ConversationBufferMemory(memory_key="chat_history")
@@ -60,6 +63,15 @@ def get_agent_response(agent, query: str, messages_history: List):
         return "Sorry, I had trouble answering your question. Please ask again 🥹"
 
 
+def initialize_general_agent(tools: List = [], is_agent_verbose: bool = True, max_iterations: int = 3, return_thought_process: bool = False):
+    memory = ConversationBufferMemory(memory_key="chat_history")
+
+    # Initialize agent
+    agent = initialize_agent(
+        tools, llm, agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, verbose=is_agent_verbose, max_iterations=max_iterations, return_intermediate_steps=return_thought_process, memory=memory)
+
+    return agent
+    
 def initialize_retrieval_agent():
     tools = [tool_retrieve_company_info(),
              tool_describe_skills(),

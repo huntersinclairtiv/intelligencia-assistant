@@ -46,3 +46,11 @@ faiss-cpu
 unstructured
 slack-bolt
 supabase
+streamlit
+tiktoken
+tabulate
+pdf2image
+pytesseract
+google-search-results
+pypdf
+pycryptodome

@@ -68,11 +68,19 @@ def handle_ai_query(body, say, ack):
         return
 
     say(get_random_thinking_message())
-    slack_respond_with_agent(agent=general_agent, ack=ack, app=app, say=say, body=body)
+    slack_respond_with_general_agent(agent=general_agent, ack=ack, app=app, say=say, body=body)
 
 @app.command("/bot")
 def handle_bot_query(body, say, ack):
-    slack_respond_with_agent(agent=general_agent, ack=ack, app=app, say=say, body=body)
+    ack()
+    value = body['text']
+
+    # If user didn't include a URL or URLs, then abort
+    if (value == "" or value is None):
+        say("Please enter a query for ChatGPT.")
+        return
+
+    slack_respond_with_general_agent(agent=general_agent, ack=ack, app=app, say=say, body=body)
 
 
 def run_slack_app():

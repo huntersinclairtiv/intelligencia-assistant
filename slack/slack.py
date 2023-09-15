@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+import logging
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -8,6 +9,10 @@ from ai.ai_agents import initialize_retrieval_agent, initialize_general_agent
 from slack.slack_utils import is_dm
 from slack.slack_utils import get_random_thinking_message
 from slack.slack_functions import slack_respond_with_agent
+
+# logger in a global context
+# requires importing logging
+logging.basicConfig(level=logging.DEBUG)
 
 load_dotenv()
 

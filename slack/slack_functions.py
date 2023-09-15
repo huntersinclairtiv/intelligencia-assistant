@@ -3,7 +3,22 @@ from slack.slack_utils import get_random_thinking_message, send_slack_message_an
 from utils import extract_messages
 from consts import demo_company_name, ai_name
 from supabase_wrapper import write_message_log
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain.chains import LLMChain
+from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+import logging
 
+# requires importing logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Load .env variables
+load_dotenv()
+
+# LLM Initialization
+openai_api_key = os.getenv("OPENAI_API_KEY")
+llm = ChatOpenAI(max_retries=3, temperature=0.8,  # type: ignore
+                 model_name=llm_model_type)
 
 def slack_respond_with_agent(agent, event, ack, app):
     """
@@ -23,7 +38,7 @@ def slack_respond_with_agent(agent, event, ack, app):
         channel=channel, limit=5)
     messages_history.extend(extract_messages(conversation_history))
 
-    # Give the bot context of about the user (changed from frist name to display name so it unique for history)
+    # Give the bot context of about the user (changed from first name to display name so it unique for history)
     user_id = event["user"]
     user_real_name = app.client.users_info(
         user=user_id)['user']['profile']['real_name']  # type: ignore
@@ -108,7 +123,7 @@ def slack_respond_with_general_agent(agent, ack, app, say, body):
         channel=channel, limit=5)
     messages_history.extend(extract_messages(conversation_history))
 
-    # Give the bot context of about the user (changed from frist name to display name so it unique for history)
+    # Give the bot context of about the user (changed from first name to display name so it unique for history)
     user_id = body["user_id"]
     user_real_name = app.client.users_info(
         user=user_id)['user']['profile']['real_name']  # type: ignore
@@ -175,3 +190,91 @@ def slack_respond_with_general_agent(agent, ack, app, say, body):
     # Write message log to Supabase
     write_message_log("AI", response)
 
+def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
+    # Acknowledge user's message
+    msg = body['text']
+    channel = body["channel_id"]
+    ack_message_id = send_slack_message_and_return_message_id(
+        app=app, channel=channel, message=get_random_thinking_message())
+
+    # Give the bot context of about the user (changed from first name to display name so it unique for history)
+    user_id = body["user_id"]
+    user_real_name = app.client.users_info(user=user_id)['user']['profile']['real_name']  # type: ignore
+    user_diplay_name = app.client.users_info(user=user_id)['user']['profile']['display_name']  # type: ignore
+
+    # Write message log to Supabase
+    write_message_log(user_name=user_diplay_name, message=msg)
+
+	# Prompt 
+	prompt = ChatPromptTemplate(
+		messages=[
+			SystemMessagePromptTemplate.from_template(
+				f"You are large language model chatbot assistant at {demo_company_name} trained by OpenAI. Your name is {ai_name}. You answer questions about anything, as factually as you can based on the information you know, and will attempt to provide references to where your answers came from."
+			),
+			HumanMessagePromptTemplate.from_template(f"My name is {user_real_name}")
+			# The `variable_name` here is what must align with memory
+			MessagesPlaceholder(variable_name="chat_history_".user_id),
+			HumanMessagePromptTemplate.from_template("{question}")
+		]
+	)
+
+	# Notice that we `return_messages=True` to fit into the MessagesPlaceholder
+	# Notice that `"chat_history"` aligns with the MessagesPlaceholder name
+	memory = ConversationBufferMemory(memory_key="chat_history".user_id,return_messages=True)
+	conversation = LLMChain(
+		llm=llm,
+		prompt=prompt,
+		verbose=True,
+		memory=memory
+	)
+
+	# Notice that we just pass in the `question` variables - `chat_history` gets populated by memory
+	response = conversation({"question": msg})
+	
+	logging.debug('RESPONSE **** : '.response['text'])
+	
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                    "type": "mrkdwn",
+                    "text": response
+            },
+        },
+        {
+            "type": "actions",
+            "block_id": "actionblock789",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "emoji": True,
+                        "text": "👍"
+                    },
+                    "style": "primary",
+                    "value": "feedback_good"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "emoji": True,
+                        "text": "👎"
+                    },
+                    "style": "primary",
+                    "value": "feedback_bad"
+                }
+            ]
+        }
+    ]
+
+    # Replace acknowledgement message with actual response
+    app.client.chat_update(
+        channel=channel,
+        text=response['text'],
+        ts=ack_message_id,
+        blocks=blocks
+    )
+
+	write_message_log("AI", response['text'])

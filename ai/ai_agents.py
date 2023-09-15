@@ -68,7 +68,7 @@ def initialize_general_agent(tools: List = [], is_agent_verbose: bool = True, ma
 
     # Initialize agent
     agent = initialize_agent(
-        tools, llm, agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, verbose=is_agent_verbose, max_iterations=max_iterations, return_intermediate_steps=return_thought_process, memory=memory)
+        tools, llm_simple, agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, verbose=is_agent_verbose, max_iterations=max_iterations, return_intermediate_steps=return_thought_process, memory=memory)
 
     return agent
     

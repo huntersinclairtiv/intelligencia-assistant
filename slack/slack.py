@@ -67,8 +67,7 @@ def handle_ai_query(body, say, ack):
         say("Please enter a query for ChatGPT.")
         return
 
-    say(get_random_thinking_message())
-    slack_respond_with_general_agent(agent=general_agent, ack=ack, app=app, say=say, body=body)
+    slack_respond_to_gpt_conversation(agent=general_agent, ack=ack, app=app, say=say, body=body)
 
 @app.command("/bot")
 def handle_bot_query(body, say, ack):

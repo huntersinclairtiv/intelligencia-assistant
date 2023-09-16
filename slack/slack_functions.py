@@ -24,7 +24,7 @@ load_dotenv()
 # LLM Initialization
 openai_api_key = os.getenv("OPENAI_API_KEY")
 llm = ChatOpenAI(max_retries=3, temperature=0.8,  # type: ignore
-                 model_name=llm_model_type)
+                 model=llm_model_type)
 
 class MyCustomHandler(BaseCallbackHandler):
     def on_llm_new_token(self, token: str, **kwargs) -> None:
@@ -257,7 +257,12 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
 	#memory=memory
 	
 	# Notice that we just pass in the `question` variables - `chat_history` gets populated by memory
-    response = conversation.run({"question": msg})
+    response = conversation.run({
+        "question": msg, 
+        "demo_company_name": demo_company_name,
+		"ai_name": ai_name,
+		"user_real_name": user_real_name
+    })
 
     logging.debug('RESPONSE ****: %s', response)
 	

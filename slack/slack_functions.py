@@ -266,7 +266,7 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
             "type": "section",
             "text": {
                     "type": "mrkdwn",
-                    "text": response
+                    "text": "test"
             },
         },
         {

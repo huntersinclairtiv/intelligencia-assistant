@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from typing import List
 from consts import llm_model_type
@@ -13,10 +14,9 @@ from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
-import logging
 
 # requires importing logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 # Load .env variables
 load_dotenv()
@@ -202,6 +202,11 @@ def slack_respond_with_general_agent(agent, ack, app, say, body):
     write_message_log("AI", response)
 
 def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
+
+    logging.debug("A debug message")
+    logging.info("An info message")
+    logging.warning("A warning message")
+    logging.error("An error message")
 
     # Acknowledge user's message
     msg = body['text']

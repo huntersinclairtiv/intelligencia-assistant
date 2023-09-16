@@ -28,7 +28,7 @@ llm = ChatOpenAI(max_retries=3, temperature=0.8,  # type: ignore
 
 class MyCustomHandler(BaseCallbackHandler):
     def on_llm_new_token(self, token: str, **kwargs) -> None:
-        logging.debug(token)
+        logging.info(token)
 
 
 def slack_respond_with_agent(agent, event, ack, app):
@@ -203,11 +203,6 @@ def slack_respond_with_general_agent(agent, ack, app, say, body):
 
 def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
 
-    logging.debug("A debug message")
-    logging.info("An info message")
-    logging.warning("A warning message")
-    logging.error("An error message")
-
     # Acknowledge user's message
     msg = body['text']
     channel = body["channel_id"]
@@ -229,7 +224,7 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
     	HumanMessage(content=msg)
 	]
     response = llm(my_messages)
-    logging.debug('llm results: %s', response)
+    logging.info('llm results: %s', response)
     
     # Prompt
     chat_id = f"chat_history_{user_id}"
@@ -248,7 +243,7 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
 		user_real_name=user_real_name,
 		question=msg
 	)
-    logging.debug('messages: %s', messages)
+    logging.info('messages: %s', messages)
 
 	# Notice that we `return_messages=True` to fit into the MessagesPlaceholder
 	# Notice that `"chat_history"` aligns with the MessagesPlaceholder name

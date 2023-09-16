@@ -12,7 +12,7 @@ from slack.slack_functions import slack_respond_with_agent, slack_respond_with_g
 
 # logger in a global context
 # requires importing logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
 

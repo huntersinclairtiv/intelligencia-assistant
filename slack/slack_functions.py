@@ -223,8 +223,8 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
     	HumanMessage(content=f"My name is {user_real_name}"),
     	HumanMessage(content=msg)
 	]
-    results = llm(my_messages)
-    logging.debug('llm results: %s', results)
+    response = llm(my_messages)
+    logging.debug('llm results: %s', response)
     
     # Prompt
     chat_id = f"chat_history_{user_id}"
@@ -257,14 +257,9 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
 	#memory=memory
 	
 	# Notice that we just pass in the `question` variables - `chat_history` gets populated by memory
-    response = conversation.run({
-        "question": msg, 
-        "demo_company_name": demo_company_name,
-		"ai_name": ai_name,
-		"user_real_name": user_real_name
-    })
+    # response = conversation.run({"question": msg})
 
-    logging.debug('RESPONSE ****: %s', response)
+    # logging.debug('RESPONSE ****: %s', response)
 	
     blocks = [
         {
@@ -305,9 +300,9 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
     # Replace acknowledgement message with actual response
     app.client.chat_update(
         channel=channel,
-        text=response,
+        text=f'{response}',
         ts=ack_message_id,
         blocks=blocks
     )
 
-    write_message_log("AI", response)
+    #write_message_log("AI", f'{response}')

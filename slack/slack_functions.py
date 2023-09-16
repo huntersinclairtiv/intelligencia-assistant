@@ -300,7 +300,7 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
     # Replace acknowledgement message with actual response
     app.client.chat_update(
         channel=channel,
-        text=f'{response}',
+        text="temp",
         ts=ack_message_id,
         blocks=blocks
     )

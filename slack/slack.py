@@ -8,7 +8,7 @@ from ai.ai_functions import load_urls_and_overwrite_index
 from ai.ai_agents import initialize_retrieval_agent, initialize_general_agent
 from slack.slack_utils import is_dm
 from slack.slack_utils import get_random_thinking_message
-from slack.slack_functions import slack_respond_with_agent, slack_respond_with_general_agent
+from slack.slack_functions import slack_respond_with_agent, slack_respond_with_general_agent, slack_respond_to_gpt_conversation
 
 # logger in a global context
 # requires importing logging

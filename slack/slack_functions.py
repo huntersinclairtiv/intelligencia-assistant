@@ -226,6 +226,7 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
     response = llm(my_messages)
     logging.info('llm results: %s', response)
     
+    logging.info('llm results: %s', response.content)
     # Prompt
     chat_id = f"chat_history_{user_id}"
     prompt=ChatPromptTemplate.from_messages([
@@ -266,7 +267,7 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
             "type": "section",
             "text": {
                     "type": "mrkdwn",
-                    "text": "test"
+                    "text": response.content
             },
         },
         {
@@ -300,7 +301,7 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
     # Replace acknowledgement message with actual response
     app.client.chat_update(
         channel=channel,
-        text="temp",
+        text=response.content,
         ts=ack_message_id,
         blocks=blocks
     )

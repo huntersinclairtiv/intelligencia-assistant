@@ -1,3 +1,7 @@
+import os
+from dotenv import load_dotenv
+from typing import List
+from consts import llm_model_type
 from ai.ai_agents import get_agent_response
 from slack.slack_utils import get_random_thinking_message, send_slack_message_and_return_message_id
 from utils import extract_messages
@@ -7,6 +11,7 @@ from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMes
 from langchain.chains import LLMChain
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
+from langchain.callbacks.base import BaseCallbackHandler
 import logging
 
 # requires importing logging
@@ -19,6 +24,11 @@ load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 llm = ChatOpenAI(max_retries=3, temperature=0.8,  # type: ignore
                  model_name=llm_model_type)
+
+class MyCustomHandler(BaseCallbackHandler):
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        logging.debug(token)
+
 
 def slack_respond_with_agent(agent, event, ack, app):
     """
@@ -191,6 +201,7 @@ def slack_respond_with_general_agent(agent, ack, app, say, body):
     write_message_log("AI", response)
 
 def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
+
     # Acknowledge user's message
     msg = body['text']
     channel = body["channel_id"]
@@ -204,24 +215,23 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
 
     # Write message log to Supabase
     write_message_log(user_name=user_diplay_name, message=msg)
-
-	# Prompt 
-	prompt = ChatPromptTemplate(
+    
+    # Prompt
+    prompt=ChatPromptTemplate(input_variables=["question"],
 		messages=[
 			SystemMessagePromptTemplate.from_template(
 				f"You are large language model chatbot assistant at {demo_company_name} trained by OpenAI. Your name is {ai_name}. You answer questions about anything, as factually as you can based on the information you know, and will attempt to provide references to where your answers came from."
 			),
-			HumanMessagePromptTemplate.from_template(f"My name is {user_real_name}")
-			# The `variable_name` here is what must align with memory
-			MessagesPlaceholder(variable_name="chat_history_".user_id),
+			HumanMessagePromptTemplate.from_template(f"My name is {user_real_name}"),
+			MessagesPlaceholder(variable_name=f"chat_history_{user_id}"),
 			HumanMessagePromptTemplate.from_template("{question}")
 		]
 	)
 
 	# Notice that we `return_messages=True` to fit into the MessagesPlaceholder
 	# Notice that `"chat_history"` aligns with the MessagesPlaceholder name
-	memory = ConversationBufferMemory(memory_key="chat_history".user_id,return_messages=True)
-	conversation = LLMChain(
+    memory = ConversationBufferMemory(memory_key=f"chat_history_{user_id}",return_messages=True)
+    conversation = LLMChain(
 		llm=llm,
 		prompt=prompt,
 		verbose=True,
@@ -229,9 +239,9 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
 	)
 
 	# Notice that we just pass in the `question` variables - `chat_history` gets populated by memory
-	response = conversation({"question": msg})
+    response = conversation.run({"question": msg})
 	
-	logging.debug('RESPONSE **** : '.response['text'])
+    logging.debug(f"RESPONSE **** : {response}")
 	
     blocks = [
         {
@@ -272,9 +282,9 @@ def slack_respond_to_gpt_conversation(agent, ack, app, say, body):
     # Replace acknowledgement message with actual response
     app.client.chat_update(
         channel=channel,
-        text=response['text'],
+        text=response,
         ts=ack_message_id,
         blocks=blocks
     )
 
-	write_message_log("AI", response['text'])
+    write_message_log("AI", response)

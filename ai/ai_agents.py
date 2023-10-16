@@ -1,25 +1,57 @@
 import os
+import langchain
+import logging
 from dotenv import load_dotenv
 from typing import List
-from langchain.agents import initialize_agent, AgentType
+from langchain.agents import load_tools, initialize_agent, AgentType
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationChain, LLMChain
 from consts import llm_model_type
 from ai.ai_tools import tool_describe_skills, tool_retrieve_company_info, tool_calculate_stock_options
+from ai.ai_chains import query_sql_db
+from langchain.agents import Tool
+from langchain.llms import OpenAI
+from langchain.utilities import SerpAPIWrapper
+from langchain.tools.render import render_text_description
+from langchain.agents.output_parsers import ReActSingleInputOutputParser
+from langchain.agents.format_scratchpad import format_log_to_str
+from langchain import hub
+from supabase.client import Client, create_client
+from supabase.lib.client_options import ClientOptions
+from langchain.utilities import SQLDatabase
+from langchain_experimental.sql import SQLDatabaseChain, SQLDatabaseSequentialChain
 
+langchain.debug = True
+langchain.verbose = True
+
+# requires importing logging
+logging.basicConfig(level=logging.INFO)
 
 # Load .env variables
 load_dotenv()
 
+openai_api_key = os.getenv("OPENAI_API_KEY")
+serper_api_key = os.getenv("SERPER_API_KEY")
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_KEY")
+supabase_user = os.environ.get("SUPABASE_USER")
+supabase_password = os.environ.get("SUPABASE_PASSWORD")
+supabase_host = os.environ.get("SUPABASE_HOST")
+model_name = os.environ.get("MODEL_NAME") or "gpt-3.5-turbo"
+
+#DB Init
+client_options = ClientOptions(postgrest_client_timeout=0)
+supabase: Client = create_client(supabase_url, supabase_key, options=client_options) # type: ignore
+# Initialize the OpenAI module, load and run the summarize chain
+#toolkit = SQLDatabaseToolkit(db=supabase, llm=llm)
+db_url = f'postgresql://{supabase_user}:{supabase_password}@{supabase_host}:5432/postgres'
+db = SQLDatabase.from_uri(db_url)
+
 
 # LLM Initialization
-openai_api_key = os.getenv("OPENAI_API_KEY")
-llm = ChatOpenAI(max_retries=3, temperature=0,  # type: ignore
-                 model_name=llm_model_type)
-
-llm_simple = ChatOpenAI(max_retries=3, temperature=0.8,  # type: ignore
-                 model_name=llm_model_type)
-
+llm = ChatOpenAI(max_retries=3, temperature=0, model=model_name)
+llm_simple = ChatOpenAI(max_retries=3, temperature=0.8, model=model_name)
 
 def initialize_conversational_agent(tools: List = [], is_agent_verbose: bool = True, max_iterations: int = 3, return_thought_process: bool = False):
     memory = ConversationBufferMemory(memory_key="chat_history")
@@ -71,10 +103,97 @@ def initialize_general_agent(tools: List = [], is_agent_verbose: bool = True, ma
         tools, llm_simple, agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, verbose=is_agent_verbose, max_iterations=max_iterations, return_intermediate_steps=return_thought_process, memory=memory)
 
     return agent
-    
+
 def initialize_retrieval_agent():
     tools = [tool_retrieve_company_info(),
              tool_describe_skills(),
              tool_calculate_stock_options()
              ]
     return initialize_conversational_agent(tools=tools)
+
+
+def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 30, return_thought_process: bool = False):
+    #search = SerpAPIWrapper(search_engine="google")
+
+    #TODO: need to figure out how to allow limit in query to override top_k
+    db_chain = SQLDatabaseSequentialChain.from_llm(llm, db, verbose=True, top_k=1000)
+
+    # tools = load_tools(["google-serper"], llm, serper_api_key=serper_api_key)
+    # tools[0].description = (
+    #     "A Google Search API."
+    #     "Useful for when you need to answer questions about current events, the current state of the world, or public information about companies and people."
+    #     "Input should be a search query."
+    # )
+
+    conversation_chain = ConversationChain(
+		llm=llm_simple,
+		verbose=True,
+        memory=ConversationBufferMemory())
+    
+    search_tools = load_tools(["google-serper"], llm, serper_api_key=serper_api_key)
+    search_tools[0].description = (
+        "A Google Search API."
+        "Useful for when you need to answer questions about current events, the current state of the world, or public information about companies and people."
+        "Input should be a search query."
+    )
+    search_agent = initialize_agent(search_tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True, max_iterations=30, handle_parsing_errors=True)
+
+    tools = [
+        Tool(
+            name = "Current Search",
+            func=search_agent.run,
+            description=(
+                "A Google Search API." 
+                "Useful for when you need to answer questions about current events, the current state of the world, or public information about companies and people."
+                "Input should be a search query."
+            )
+        ),
+        Tool(
+            name = "Company Database Query",
+            func=db_chain.run,
+            description= (
+                "Useful for when you need to answer questions about structured company data. "
+                "Examples include queries about client companies, programs, projects, or people. "
+                "The database only contains limited information and may require use of another tool to expand the metadata related to each. "
+                "Input should be the Human's natural language query. Input should not attempt to use SQL. "
+            )
+        ),
+        Tool(
+            name = "Conversation Query",
+            func=conversation_chain.run,
+            description= (
+                "Useful for when you need to answer general questions or have general conversations. Also should be used as default tool if no other tool is appropriate. "
+            )
+        ),
+    ]
+
+    memory = ConversationBufferMemory(memory_key="chat_history")
+
+     # Initialize agent
+    agent = initialize_agent(
+        tools, 
+        llm, 
+        agent=AgentType.CHAT_ZERO_SHOT_REACT_DESCRIPTION, 
+        verbose=is_agent_verbose, 
+        max_iterations=max_iterations, 
+        return_intermediate_steps=return_thought_process, 
+        memory=memory,
+        handle_parsing_errors=True)
+
+    return agent
+    
+
+def handle_multi_step_query(agent, query: str, messages_history: List):
+    params = {'input': query, 'chat_history': messages_history}
+    result = agent.run(params)
+
+    logging.info('QUERY results: %s', result)
+
+    # prompt = hub.pull("hwchase17/react-chat")
+    # prompt = prompt.partial(
+    #     tools=render_text_description(tools),
+    #     tool_names=", ".join([t.name for t in tools]),
+    # )
+    # return db_query_results.replace("Final answer here: ", "")
+
+    return result

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "watchPatterns": [
+      "/**"
+    ]
+  },
+  "deploy": {
+    "numReplicas": 1,
+    "startCommand": "streamlit run main.py",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

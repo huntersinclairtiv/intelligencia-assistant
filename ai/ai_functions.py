@@ -21,7 +21,7 @@ load_dotenv()
 # LLM Initialization
 openai_api_key = os.getenv("OPENAI_API_KEY")
 llm = ChatOpenAI(max_retries=3, temperature=0,  # type: ignore
-                 model_name=llm_model_type)
+                 model=llm_model_type)
 embeddings = OpenAIEmbeddings(max_retries=2)  # type: ignore
 
 

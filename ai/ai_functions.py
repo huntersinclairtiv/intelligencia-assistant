@@ -7,7 +7,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.callbacks import get_openai_callback
 from langchain.prompts import PromptTemplate
-from langchain import LLMChain
+from langchain.chains import LLMChain
 from utils import format_sources, remove_folder
 from consts import learn_more_phrases, llm_model_type
 from langchain.document_loaders import UnstructuredURLLoader

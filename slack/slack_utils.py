@@ -38,12 +38,28 @@ model_name = os.environ.get("MODEL_NAME")
 
 embeddings=OpenAIEmbeddings(openai_api_key=openai_api_key, chunk_size=3500)
 
-template = """You are an assistant to help summarize long conversations between multiple employees at Thinktiv, a business consulting company, that happen in a Slack channel. Summarize the text in the CONTENT section below. You should follow the following rules when generating the summary:
+simple_template = """Summarize the conversation chat messages in the CONTENT section below. You should follow the following rules when generating the summary: \n
+- Attempt to preserve important questions and answers related to business context, companies, or projects as best you can. \n
+- The summary should not exceed 800 characters or 3 paragraphs. \n
+- Return the summary without any explainations or introductions. \n
+- Maintain any links or channel references with the exact syntax or markdown that you are provided. \n
+- Prioritize the context of questions and answers over the participants in the conversation. \n
+- REMEMBER: Go directly into summarizing the content of the conversation and DO NOT start with generalizations like 'This is a conversation between ...'.\n\n 
+
+*******************\n
+CONTENT:\n {document}\n
+*******************\n\n
+
+Final answer:"""
+
+template = """You are an assistant to help summarize long conversations between multiple employees at Thinktiv, a business consulting company, that happen in a Slack channel. 
+Summarize the conversation chat messages in the CONTENT section below. You should follow the following rules when generating the summary:
 - Attempt to preserve important questions and answers related to business context, companies, or projects as best you can.
 - The summary should be as concise as possible without losing important details
-- The summary should not exceed 1000 characters.
+- The summary should not exceed 800 characters or 3 paragraphs.
 - Do not repeat back information I have instructed you. For instance do not say "This is a conversation between employees at Thinktiv" or similar.  You can summarize what specific individuals say though.  
-- Do not include any introduction summary about the Slack channel that the summary is about.  If the Slack channel is related to a particular company / client then you can assume that the majority of the discussion is in relation to a project for that company if not otherwise explicitly stated in the conversation.
+- Do not include any introduction summary about the Slack channel or channel id that the summary is about.  If the Slack channel is related to a particular company / client then you can assume that the majority of the discussion is in relation to a project for that company if not otherwise explicitly stated in the conversation.
+- Do not summarize the metadata provided in the content below; only use the metadata as context for the related conversation messages. 
 - Maintain any links or channel refences with the exact syntax / markdown that you find.
 - Prioritize the context of the questions and answers over the participants in the conversation.
 - REMEMBER: Go directly into summarizing the content of the conversation and DO NOT start with generalizations like "This is a conversation between employees at Thinktiv in a Slack Channel".  I already know the slack channel, the name of the related company or topic and the company everyone works for. Assume I know everything I have told you already.
@@ -52,23 +68,69 @@ CONTENT: {document}
 
 Final answer:"""
 
-sum_template = """You are an assistant to help organize and refine the summary of long conversations between multiple employees at Thinktiv, a business consulting company, that happen in a Slack channel. Organize and refine the text in the CONTENT section below. The CONTENT provided below is a list of sub-summaries of the various conversation threads. Your job is to assess the entire context and refine it to remove unnessary language while maintaining ALL of the important context provided.  IF there is any duplicate or overlapping information you should feel free to make the summary of that information more concise without duplication. You should follow the following rules when generating the final summary:
+sum_template = """You are an assistant to help organize and refine the summary of long conversations between multiple employees at Thinktiv, a business consulting company, that happen in a Slack channel. 
+Organize and refine the text in the CONTENT section below. 
+The CONTENT provided below contains a list of sub-summaries of the various conversation threads. 
+Your job is to assess the entire context and refine it to remove unnessary language while maintaining ALL of the important context provided.  
+IF there is any duplicate or overlapping information you should feel free to make the summary of that information more concise without duplication. 
+You should follow the following rules when generating the final summary:
 - Attempt to preserve important questions, answers and details related to business context, companies, or projects as best you can.
 - Do not repeat back information I have instructed you. For instance do not say "This is a conversation between employees at Thinktiv" or similar. 
 - Maintain any links or channel refences with the exact syntax / markdown that you find.
 - Each paragraph provided may have a reference link in the following FORMAT with URL representing the full URL. If you find a link like this format it should be kept fully intact with that part of the summary. FORMAT: <URL|🔗ref> 
 - Please provide logical paragraph line breaks to make the summary well structured and easily readable.
-- The final summary should not exceed 6000 character or 2000 tokens, whichever is greater.
+- The final summary should not exceed 6000 character, 2000 tokens, or 4 paragraphs, whichever is greater.
 
 CONTENT: {document}
 
 Final answer:"""
 
+ques_template = """You are an AI to help write questions based on conversations between employees at my company.  
+The context below will typically involve conversations about client companies or projects.  
+This context will get stored as embeddings in a vector DB and will be used to help answer questions by employees.
+Based on the following context I would like you to write up to three questions which can be answered by this context.  
+You should phrase the questions as if being asked by someone unfamiliar with the context and should make them as concise as possible.  
+If you determine that the context can reasonably answer any of the 'Priority Questions' listed below, then you should prioritize generating at least one question which addresses the subject of that priority question.  
+Otherwise, if the context can not answer any priority questions, you should simply use the context to return the most appropriate questions which the context CAN answer. 
+Lastly, your final answer should only include the questions you generate and you must not add additional thoughts or explanation.
+Remember: You are generating up to three questions, but do not have to return three if there is not enough context to support three.\n\n
+
+For the purposes of the context provided below you may assume the following:\n
+{metadata}
+Our program types are: \n
+ - GRO, which means Growth, Readiness, and Opportunities program. \n
+ - BVA, which means Business Value Architecture program. \n
+ - Accelerator, which means a product accelerator program. \n
+ - Brand, which means a branding program. \n\n
+
+*************** \n
+Priority Questions: \n
+1. What are the main challenges, issues, or risks experienced on this program? \n
+2. What were the learnings from VOC, voice of customer, interviews? \n
+3. What is the current messaging hierarchy, top-line message, or supporting pillars? \n
+4. Did we perform a GRO, BVA, Accelerator or Brand program for the client? \n
+5. What framework was used or considered in the discussion? \n
+6. What insight was supported or nullified by provided links or context? \n
+7. What other programs or companies is a good comp for this? \n
+8. Is there a link to a LinkedIn account, or discussion around a certain program individual who is important to the conversation?"\n\n
+
+*************** \n
+Context: {context} \n\n
+
+Final answer:"""
+
+
 SUMMARY_PROMPT = PromptTemplate(
     input_variables=["document"], template=template
 )
+SIMPLE_SUMMARY_PROMPT = PromptTemplate(
+    input_variables=["document"], template=simple_template
+)
 SUM_SUMMARY_PROMPT = PromptTemplate(
     input_variables=["document"], template=sum_template
+)
+QUES_PROMPT = PromptTemplate(
+    input_variables=["metadata", "context"], template=ques_template
 )
 
 llm=ChatOpenAI(temperature=0.5, openai_api_key=openai_api_key, model=model_name) # type: ignore
@@ -76,9 +138,17 @@ llm_summary_chain = LLMChain(
     llm=llm,
     prompt=SUMMARY_PROMPT
 )
+llm_simple_summary_chain = LLMChain(
+    llm=llm,
+    prompt=SIMPLE_SUMMARY_PROMPT
+)
 llm_sum_summary_chain = LLMChain(
     llm=llm,
     prompt=SUM_SUMMARY_PROMPT
+)
+llm_ques_chain = LLMChain(
+    llm=llm,
+    prompt=QUES_PROMPT
 )
 
 def is_dm(message) -> bool:
@@ -146,11 +216,19 @@ def chunkStr(content: str, size: int):
     return texts
 
 def summarize(document, inquiry):
-    result = llm_summary_chain(document)
+    #removing all the extra meta context added for summarization purposes.
+    doc_parts = document.page_content.split("Conversation chat messages below:\n")
+    document.page_content = doc_parts[len(doc_parts) - 1]
+    result = llm_simple_summary_chain(document)
+    #result = llm_summary_chain(document)
     return result["text"]
 
 def summarize_summary(document):
     result = llm_sum_summary_chain(document)
+    return result["text"]
+
+def getQuestionsForChunk(metadata, context):
+    result = llm_ques_chain({'metadata': metadata, 'context': context})
     return result["text"]
 
 #TODO: create a command to store embeddings for a channel - I think we should probably have a table that tracks 
@@ -170,6 +248,9 @@ def storeEmbeddings(documents: List[str], links: List[str], last_ts: float, chan
         chunk.metadata["source_type"] = "Conversation"
         chunk.metadata["channel"] = channel
         chunk.metadata["channel_name"] = channel_name
+        chunk.metadata["reference_name_cap"] = reference_name.capitalize()
+        chunk.metadata["reference_name_lcase"] = reference_name.lower()
+        chunk.metadata["reference_name_ucase"] = reference_name.upper()
         chunk.metadata["reference_name"] = reference_name
         convos = chunk.page_content.split(convo_sep)
         message_url = ""
@@ -177,9 +258,18 @@ def storeEmbeddings(documents: List[str], links: List[str], last_ts: float, chan
             message_url = links[link_index]
         chunk.metadata["source_url"] = message_url
         append_str = f"Slack Channel Name: {channel_name}\n"
-        append_str += f"Related Channel Company or Topic: {reference_name}\n"
+        append_str += f"Slack Channel ID: {channel}\n"
+        append_str += f"Related Channel Company, Program, or Topic: {reference_name}\n"
+        metadata_str = append_str
         append_str += f"Link to this part of the conversation: {message_url}\n"
-        append_str += "Conversation below:\n"
+
+        append_str += "Questions answered by conversation below:\n"
+
+        #prepend good questions to a chunk
+        ques_content = getQuestionsForChunk(metadata_str, chunk.page_content)
+        append_str += ques_content + "\n\n"
+        append_str += "Conversation chat messages below:\n"
+        append_str =  "Slack Channel metadata below:\n" + append_str
         chunk.page_content = append_str + chunk.page_content
         link_index += (len(convos) - 1) #note: need to split each chunk by the convo separator to keep correct index for links
 
@@ -192,12 +282,12 @@ def storeEmbeddings(documents: List[str], links: List[str], last_ts: float, chan
         batch_texts = [doc.page_content for doc in batch]
         # replacing add docs with add vectors instead so we can hold on to vectors in memory to cluster
         #result = vectordb.add_documents(batch)  # type: ignore
-        vectors = embeddings.embed_documents(batch_texts, chunk_size=2500)
+        vectors = embeddings.embed_documents(batch_texts, chunk_size=3500) #increase chunksize to account for prepended meta/ques
         logging.info('VECTORS SIZE : %s', str(len(batch)))
         vector_list.extend(vectors)
         ids = [str(uuid.uuid4()) for _ in batch_texts]
 
-        result = storeVectorsInDB(vectors, batch, ids)
+        result = storeVectorsInDB(vectors, batch, ids, embeddings)
         logging.info('DB ADD RESULT : %s', str(result))
 
         if len(result) == 0:
@@ -206,12 +296,13 @@ def storeEmbeddings(documents: List[str], links: List[str], last_ts: float, chan
         id_list.extend(result)
     logging.info('id_list: %s', id_list)
 
+
     numClusters = 20 # Play around with this number
     numberOfChunks = len(chunks)
-    if (numberOfChunks <= 20) : 
+    if (numberOfChunks <= 10) : 
         numClusters = numberOfChunks
     else : 
-        numClusters = 20
+        numClusters = 10
    # elif (numberOfChunks <= 60) : 
     #     numClusters = numberOfChunks // 5 
     # elif (numberOfChunks <= 120) : 

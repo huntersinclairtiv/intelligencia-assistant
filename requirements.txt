@@ -60,3 +60,4 @@ psycopg2
 langchain_experimental
 scikit-learn
 ratelimit
+lark

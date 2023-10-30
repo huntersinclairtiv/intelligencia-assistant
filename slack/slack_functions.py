@@ -107,7 +107,7 @@ def get_all_user_list(app, cursor = None):
         limit=500,
         cursor=cursor)
     users = []
-    logging.info('USER RESPONSE: %s', user_response)
+    #logging.info('USER RESPONSE: %s', user_response)
     if 'members' in user_response:
         users += user_response['members']
         logging.info('members retrieved: %s', str(len(user_response['members'])))
@@ -146,6 +146,7 @@ def get_channel_convos(app, channel):
     prevMsgTimestamp = 0.0
     last_ts = 0.0
     top_ts = 0.0 #this is the top ts of the convo to link to
+    reset_top_ts = False
     lenConvo = numConvos = 0
     BORDER_TEXT = '=============================='
     logging.info('START PROCESSING ALL MESSAGES: %s', str(len(messages)))
@@ -159,7 +160,14 @@ def get_channel_convos(app, channel):
                     name = member_dict[message['user']]['real_name']
                 elif 'display_name' in member_dict[message['user']]:
                     name = member_dict[message['user']]['display_name']
+                else:
+                    logging.info('NAME NOT FOUND: %s', message)
+            # else:
+            #     logging.info('NAME NOT FOUND: %s', message)
 
+            logging.info('\n\nMESSAGE: %s', message)
+
+            str_ts = message['ts']
             ts = float(message['ts'])
             last_ts = ts
             if (top_ts == 0) :
@@ -180,7 +188,7 @@ def get_channel_convos(app, channel):
                     all_convos.append(document)
                     logging.info('END OF CONVO: URL: %s AND DOC LEN: %s', str(link), str(len(document)))
                     document = ""
-                    top_ts = ts
+                    top_ts = str_ts
                     numConvos += 1
                 prevMsgTimestamp = ts
 
@@ -190,12 +198,14 @@ def get_channel_convos(app, channel):
                     thread_messages = []
                 # loop through the thread and add all messages to one convo
                 for thread_message in thread_messages:
-                    if (message['type'] == 'message' and 'user' in message):
-                        name = message['user']
-                        if (message['user'] in member_dict):
-                            if 'real_name' in member_dict[message['user']]:
-                                name = member_dict[message['user']]['real_name']
-                        document += F"{name}: {message['text']}\n\n"
+                    if (thread_message['type'] == 'message' and 'user' in thread_message):
+                        name = thread_message['user']
+                        if (thread_message['user'] in member_dict):
+                            if 'real_name' in member_dict[thread_message['user']]:
+                                name = member_dict[thread_message['user']]['real_name']
+                            elif 'display_name' in member_dict[thread_message['user']]:
+                                name = member_dict[thread_message['user']]['display_name']
+                        document += F"{name}: {thread_message['text']}\n\n"
                         numMessages += 1
 
                 # now close the convo
@@ -205,6 +215,7 @@ def get_channel_convos(app, channel):
                 logging.info('END OF CONVO: URL: %s AND DOC LEN: %s', str(link), str(len(document)))
                 document = ""
                 top_ts = thread_ts
+                reset_top_ts = True
                 numConvos += 1
             else:
                 #this is not a thread - so just keep going normally.
@@ -219,14 +230,18 @@ def get_channel_convos(app, channel):
                     all_convos.append(document)
                     logging.info('END OF CONVO: URL: %s AND DOC LEN: %s', str(link), str(len(document)))
                     document = ""
-                    top_ts = ts
+                    top_ts = str_ts
                     numConvos += 1
 
                 prevMsgTimestamp = ts
-                
+                if (reset_top_ts):
+                    reset_top_ts = False
+                    top_ts = str_ts
                 #add the message to the convo with Name: Message format
                 document += F"{name}: {message['text']}\n\n"
                 numMessages += 1
+        else:
+            logging.info('UNHANDLED MESSAGE: %s', message)
     logging.info('DONE PROCESSING - NUM CONVOS: %s', str(len(all_convos)))
 
     #add the last convo to array
@@ -255,41 +270,49 @@ def slack_store_channel(ack, app, say, body):
   
 
     (documents, links, last_ts) = get_channel_convos(app, channel)
+    #logging.info('ALL CONVOS: %s', documents)
+
 
     #logging.info('summary: %s', document)
     (summary, longSummary) = storeEmbeddings(documents, links, last_ts, channel, channel_name, reference_name)
 
     replyTs = ack_message_id
     # Replace acknowledgement message with actual response
-    if (len(summary) > 3000) :
-        app.client.chat_update(
-            channel=channel,
-            text="Longer Summary will be added below:",
-            ts=ack_message_id
-        )
-        if (len(summary) < 40000) :
-            thisPost = app.client.chat_postMessage(
-                channel=channel,
-                unfurl_links=False, 
-                unfurl_media=False,
-                text=summary
-            )
-            if ("ts" in thisPost):
-                replyTs = thisPost["ts"]
-        else : 
-            app.client.chat_postMessage(
-                channel=channel,
-                text="Message too long : report this error"
-            )
-    else :
-        app.client.chat_update(
-            channel=channel,
-            text=summary,
-            unfurl_links=False, 
-            unfurl_media=False,
-            ts=ack_message_id
-        )
+    # if (len(summary) > 3000) :
+    #     app.client.chat_update(
+    #         channel=channel,
+    #         text="Longer Summary will be added below:",
+    #         ts=ack_message_id
+    #     )
+    #     if (len(summary) < 40000) :
+    #         thisPost = app.client.chat_postMessage(
+    #             channel=channel,
+    #             unfurl_links=False, 
+    #             unfurl_media=False,
+    #             text=summary
+    #         )
+    #         # if this message gets split into multiple this looks weird on the last one - so lets just put it on the ack_message
+    #         # if ("ts" in thisPost):
+    #         #     replyTs = thisPost["ts"]
+    #     else : 
+    #         app.client.chat_postMessage(
+    #             channel=channel,
+    #             text="Message too long : report this error"
+    #         )
+    # else :
+    #     app.client.chat_update(
+    #         channel=channel,
+    #         text=summary,
+    #         unfurl_links=False, 
+    #         unfurl_media=False,
+    #         ts=ack_message_id
+    #     )
     #reply with longer summary
+    app.client.chat_update(
+        channel=channel,
+        text="Channel Summary added as reply:",
+        ts=ack_message_id
+    )
     app.client.chat_postMessage(
         channel=channel,
         unfurl_links=False, 
@@ -312,6 +335,7 @@ def slack_summarize_channel(ack, app, say, body):
     #logging.info('summary: %s', document)
     summary = summarizeLongDocument(document, "")
     logging.info('summary: %s', summary)
+
 
 
 def slack_respond_with_new_agent(agent, event, ack, app):

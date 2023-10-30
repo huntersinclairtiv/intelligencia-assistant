@@ -55,7 +55,7 @@ google-search-results
 pypdf
 pycryptodome
 streamlit_chat
-python-magic-bin
+python-magic
 psycopg2
 langchain_experimental
 scikit-learn

@@ -123,17 +123,18 @@ def getDocumentConversationChain():
         input_variables=["context", "question"], template=qa_template
     )
 
-    condense_template = ("Given the following conversation and a ""Follow Up Question"", rephrase the follow up question to be a standalone question, in its original language.  If the follow up question does not directly reference the conversation history, then just use the original follow up question as the new standalone question.\n\n"
+    condense_template = ("Given the following conversation chat history and a ""Follow Up Question"", rephrase the follow up question to be a standalone question, in its original language.  If the follow up question does not need additional context or clarity, then just return the follow up question. Otherwise, if the follow up question can be improved with additional details provided by the chat history, then return a new standalone question with all relevant context included, but the original follow up question should be the basis for the new standalone question.\n\n"
         "______________________\n"
         "Chat History:\n"
         "{chat_history}\n"
+        "______________________\n"
         "Follow Up Question: {question}\n"
         "Standalone question:"
-        "______________________\n"
-        "Then, once you have the standalone question and given the context provided below, please reformulate the standalone question, considering the different ways team members might naturally discuss topics related to the query in a workplace setting. When reformulating, think about direct and indirect references, synonyms, related concepts, and any colloquial or jargon terms they might use. The goal is to produce a revised standalone question that captures the essence of the original standalone question but is optimized for retrieving relevant conversations from a vector database of natural language discussions using similarity search.\n\n"
-        "Context: The vector database contains Slack conversations among team members at our company. These conversations are diverse and cover various aspects of multiple projects. The language used is natural, conversational, and can range from casual to technical discussions, often sprinkled with workplace jargon.\n\n"
-        "Reformulated Standalone question:"
     )
+    # "______________________\n"
+    # "Then, once you have the standalone question and given the context provided below, please reformulate the standalone question, considering the different ways team members might naturally discuss topics related to the query in a workplace setting. When reformulating, think about direct and indirect references, synonyms, related concepts, and any colloquial or jargon terms they might use. The goal is to produce a revised standalone question that captures the essence of the original standalone question but is optimized for retrieving relevant conversations from a vector database of natural language discussions using similarity search.\n\n"
+    # "Context: The vector database contains Slack conversations among team members at our company. These conversations are diverse and cover various aspects of multiple projects. The language used is natural, conversational, and can range from casual to technical discussions, often sprinkled with workplace jargon.\n\n"
+    # "Reformulated Standalone question:"
     CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(condense_template)
     #"Finally, once you have reformulated the standalone question, you should respond with the Standalone Question appended to the Follow up question as your final answer.\n\n"
 

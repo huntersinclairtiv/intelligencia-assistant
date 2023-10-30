@@ -56,7 +56,7 @@ pypdf
 pycryptodome
 streamlit_chat
 python-magic
-psycopg2
+psycopg2-binary
 langchain_experimental
 scikit-learn
 ratelimit

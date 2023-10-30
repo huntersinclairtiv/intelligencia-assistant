@@ -163,7 +163,7 @@ def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 
             name = "Slack Channel Query",
             func=lambda e: document_chain({"question": e}),
             description= (
-                "Useful for when you need to answer questions about employee conversations related to a company, program or within a slack channel."
+                "Useful for when you need to answer questions about employee conversations related to a company, program or within a slack channel. You should pass the original question in its entirety to this tool."
             )
         ),
         Tool(

@@ -63,8 +63,8 @@ db = SQLDatabase.from_uri(db_url)
 vectordb = SupabaseVectorStore(client=supabase, embedding=embeddings, table_name="documents")
 
 @st.cache_resource
-def init_memory():
-    memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer')
+def init_memory(mem_key='chat_history'):
+    memory = ConversationBufferMemory(memory_key=mem_key, return_messages=True, output_key='answer')
     return memory
 
 def query_sql_db(query: str):
@@ -150,7 +150,8 @@ def getDocumentConversationChain():
     COMBINE_PROMPT = PromptTemplate(input_variables=["summaries", "question"], template=combine_template)
 
 
-    memory = init_memory()
+    #memory = init_memory('chat_history')
+    memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer')
 
     # Create the custom chain
     doc_retrieval_chain = ConversationalRetrievalChain.from_llm(

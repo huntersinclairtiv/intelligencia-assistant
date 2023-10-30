@@ -208,7 +208,7 @@ def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 
 
 def handle_multi_step_query(agent, query: str, messages_history: List):
     params = {'input': query, 'chat_history': messages_history}
-    #agent.memory.clear()
+    agent.memory.clear()
     result = agent.run(params)
 
     logging.info('QUERY results: %s', result)

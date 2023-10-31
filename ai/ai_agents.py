@@ -120,6 +120,11 @@ def initialize_retrieval_agent():
              ]
     return initialize_conversational_agent(tools=tools)
 
+def doc_chain_run(document_chain, search_str):
+    document_chain.memory.clear()
+    return document_chain({"question": search_str})
+
+
 
 def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 30, return_thought_process: bool = False):
     #search = SerpAPIWrapper(search_engine="google")
@@ -136,10 +141,12 @@ def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 
 
     document_chain = getDocumentConversationChain()
 
+    conv_memory = init_memory()
     conversation_chain = ConversationChain(
 		llm=llm_simple,
 		verbose=True,
-        memory=ConversationBufferMemory())
+        output_key="answer",
+        memory=conv_memory)
     
     search_tools = load_tools(["google-serper"], llm, serper_api_key=serper_api_key)
     search_tools[0].description = (
@@ -161,14 +168,21 @@ def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 
         ),
         Tool(
             name = "Slack Channel Query",
-            func=lambda e: document_chain({"question": e}),
+            func=lambda e: doc_chain_run(document_chain, e),
             description= (
                 "Useful for when you need to answer questions about employee conversations related to a company, program or within a slack channel. You should pass the original question in its entirety to this tool."
             )
         ),
         Tool(
+            name = "Document Query",
+            func=lambda e: doc_chain_run(document_chain, e),
+            description= (
+                "Useful for when you need to answer questions about a company, project, program, deliverable or specific document. You should pass the original question in its entirety to this tool unless you are breaking the question down into multiple steps to be answered by separate tools for each step."
+            )
+        ),
+        Tool(
             name = "Conversation Query",
-            func=conversation_chain.run,
+            func=lambda e: conversation_chain({"input": e}), 
             description= (
                 "Useful for when you need to answer general questions or have a more general conversation. Also should be used as default tool if no other tool is appropriate. "
             )
@@ -188,7 +202,9 @@ def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 
     memory = ConversationBufferMemory(memory_key="chat_history")
 
     #system_message = SystemMessage(content="You are a helpful AI chat assistant for employees at a company named Thinktiv.  We communicate with you within chat channels of the Slack app. Questions will most commonly be about programs/projects which Thinktiv has done for other client companies. Sometimes a I may ask a question assuming you know the the related company or project simply because the question is asked within a channel dedicated to that company or project. If I ask a question which lacks necessary specifics like references to 'this program', 'this company', 'this client', or 'this project', you should ask the me to specify the missing details before proceeding.")
-    PREFIX = """You are a helpful AI chat assistant for employees at a company named Thinktiv.  Employees communicate with you within chat channels of the Slack app. Questions will most commonly be about programs/projects which Thinktiv has done for other client companies. Sometimes they may ask a question assuming you know the the related company or project simply because the question is asked within a channel dedicated to that company or project. If your are ask a question which lacks necessary specifics like references to 'this program', 'this company', 'this client', or 'this project', you should ask the employee to specify the missing details before proceeding.\n
+    # PREFIX = """You are a helpful AI chat assistant for employees at a company named Thinktiv.  Employees communicate with you within chat channels of the Slack app. Questions will most commonly be about programs/projects which Thinktiv has done for other client companies. Sometimes they may ask a question assuming you know the the related company or project simply because the question is asked within a channel dedicated to that company or project. If your are ask a question which lacks necessary specifics like references to 'this program', 'this company', 'this client', or 'this project', you should ask the employee to specify the missing details before proceeding.\n
+    # Answer the following questions as best you can. You have access to the following tools:"""
+    PREFIX = """You are a helpful AI chat assistant for employees at a company named Thinktiv.  Employees communicate with you within chat channels of the Slack app. Questions will most commonly be about programs/projects which Thinktiv has done for other client companies. If a question is about a project or company you should assume that the employee wishes you to answer that question first based on information from within the Slack Channel Query or Documents Query tool first before searching the web or answering more generically based on information you have been trained.\n
     Answer the following questions as best you can. You have access to the following tools:"""
 
      # Initialize agent

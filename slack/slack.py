@@ -126,4 +126,6 @@ def handle_store_channel(body, say, ack):
 #     logger.info(f"Request body: {body}")
 
 def run_slack_app():
-    SocketModeHandler(app, app_token).start() 
+    handler = SocketModeHandler(app, app_token)
+    handler.start() 
+    return handler

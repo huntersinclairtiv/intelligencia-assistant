@@ -1,4 +1,5 @@
 import os
+import sys
 import streamlit as st
 from dotenv import load_dotenv
 from slack.slack import run_slack_app
@@ -37,6 +38,11 @@ st.markdown(
     * A sample app for querying against a SQL DB using LangChain, OpenAI and Supabase.
     """
 )
-
+slackHandler = None
 if __name__ == "__main__":
-    run_slack_app()
+    slackHandler = run_slack_app()
+
+if st.button("Quit App"):
+    if (slackHandler != None):
+        slackHandler.close()
+    sys.exit("Exited the App")

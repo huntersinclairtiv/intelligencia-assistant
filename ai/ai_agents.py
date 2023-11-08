@@ -58,8 +58,8 @@ llm = ChatOpenAI(max_retries=3, temperature=0.1, model=model_name)
 llm_simple = ChatOpenAI(max_retries=3, temperature=0.8, model=model_name)
 
 @st.cache_resource
-def init_memory():
-    memory = ConversationBufferMemory(memory_key='query_history', return_messages=True, output_key='answer')
+def init_memory(mem_key='chat_history'):
+    memory = ConversationBufferMemory(memory_key=mem_key, return_messages=True, output_key='answer')
     return memory
 
 def initialize_conversational_agent(tools: List = [], is_agent_verbose: bool = True, max_iterations: int = 3, return_thought_process: bool = False):
@@ -139,12 +139,22 @@ def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 
     #     "Input should be a search query."
     # )
 
-    document_chain = getDocumentConversationChain()
+    DEFAULT_CONVO_TEMPLATE = """The following is a friendly conversation between a human and an AI. The AI is talkative and provides lots of specific details from its context. If the AI does not know the answer to a question, it truthfully says it does not know.
 
-    conv_memory = init_memory()
+    Current conversation:
+    {chat_history}
+    Human: {input}
+    AI:"""
+    CONVO_PROMPT = PromptTemplate(input_variables=["chat_history", "input"], template=DEFAULT_CONVO_TEMPLATE)
+
+
+    document_chain = getDocumentConversationChain()    
+
+    conv_memory = init_memory(mem_key='chat_history')
     conversation_chain = ConversationChain(
 		llm=llm_simple,
 		verbose=True,
+        prompt=CONVO_PROMPT,
         output_key="answer",
         memory=conv_memory)
     
@@ -170,24 +180,25 @@ def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 
             name = "Slack Channel Query",
             func=lambda e: doc_chain_run(document_chain, e),
             description= (
-                "Useful for when you need to answer questions about employee conversations related to a company, program or within a slack channel. You should pass the original question in its entirety to this tool."
+                "Useful for when you need to answer questions about employee conversations related to a company, program or within a slack channel. Input should be in the form of the original question that was asked."
             )
         ),
         Tool(
             name = "Document Query",
             func=lambda e: doc_chain_run(document_chain, e),
             description= (
-                "Useful for when you need to answer questions about a company, project, program, deliverable or specific document. You should pass the original question in its entirety to this tool unless you are breaking the question down into multiple steps to be answered by separate tools for each step."
+                "Useful for when you need to answer questions from the content of documents related to a client company, project, program, deliverable or specific document. Input should be in the form of the original question that was asked. "
             )
         ),
         Tool(
             name = "Conversation Query",
             func=lambda e: conversation_chain({"input": e}), 
             description= (
-                "Useful for when you need to answer general questions or have a more general conversation. Also should be used as default tool if no other tool is appropriate. "
+                "Useful for when you need to answer general questions from an OpenAI LLM or have a more general conversation. Also should be used as default tool if no other tool is appropriate. Input should be in the form of a question. "
             )
         ),
     ]
+    #                "Useful for when you need to answer questions about a company, project, program, deliverable or specific document. You should pass the original question in its entirety to this tool unless you are breaking the question down into multiple steps to be answered by separate tools for each step."
     #func=lambda e: document_chain({"question": e}),
     # Tool(
     #     name = "Company Database Query",
@@ -204,23 +215,62 @@ def initialize_basic_agent(is_agent_verbose: bool = True, max_iterations: int = 
     #system_message = SystemMessage(content="You are a helpful AI chat assistant for employees at a company named Thinktiv.  We communicate with you within chat channels of the Slack app. Questions will most commonly be about programs/projects which Thinktiv has done for other client companies. Sometimes a I may ask a question assuming you know the the related company or project simply because the question is asked within a channel dedicated to that company or project. If I ask a question which lacks necessary specifics like references to 'this program', 'this company', 'this client', or 'this project', you should ask the me to specify the missing details before proceeding.")
     # PREFIX = """You are a helpful AI chat assistant for employees at a company named Thinktiv.  Employees communicate with you within chat channels of the Slack app. Questions will most commonly be about programs/projects which Thinktiv has done for other client companies. Sometimes they may ask a question assuming you know the the related company or project simply because the question is asked within a channel dedicated to that company or project. If your are ask a question which lacks necessary specifics like references to 'this program', 'this company', 'this client', or 'this project', you should ask the employee to specify the missing details before proceeding.\n
     # Answer the following questions as best you can. You have access to the following tools:"""
-    PREFIX = """You are a helpful AI chat assistant for employees at a company named Thinktiv.  Employees communicate with you within chat channels of the Slack app. Questions will most commonly be about programs/projects which Thinktiv has done for other client companies. If a question is about a project or company you should assume that the employee wishes you to answer that question first based on information from within the Slack Channel Query or Documents Query tool first before searching the web or answering more generically based on information you have been trained.\n
-    Answer the following questions as best you can. You have access to the following tools:"""
+    # PREFIX = """You are a helpful AI chat assistant for employees at a company named Thinktiv.  Employees communicate with you within chat channels of the Slack app. Questions will most commonly be about programs/projects which Thinktiv has done for other client companies. If a question is about a project or company you should assume that the employee wishes you to answer that question first based on information from within the Slack Channel Query or Documents Query tool first before searching the web or answering more generically based on information you have been trained.\n
+    # Answer the following questions as best you can. You have access to the following tools:"""
+    
+    #PREFIX = """Answer the following questions as best you can. You are REQUIRED to use a tool to answer the question. You have access to the following tools to help answer the question:"""
+
+    PREFIX = """Answer the following questions as best you can. You have access to the following tools:"""
+    FORMAT_INSTRUCTIONS = """Always use the following format when you respond:\n\n
+    Question: the input question you must answer\n
+    Thought: you should always think about what to do\n
+    Action: the action to take, must be one of [Current Search, Slack Channel Query, Document Query, Conversation Query]\n
+    Action Input: input question provided in form of a question\n
+    Observation: the result of the action\n
+    ... (this Thought/Action/Action Input/Observation can repeat N times)\n
+    Thought: I now know the final answer\n
+    Final Answer: the final answer to the original input question"""
+
+    SUFFIX = """Begin!\n\n
+    
+    Question: {input}\n
+    Question:\n
+    Thought:{agent_scratchpad}\n
+    Action:\n
+    Action Input:\n"""
+
+    # PREFIX = """Answer the following questions as best you can. You have access to the following tools:"""
+    # FORMAT_INSTRUCTIONS = """Use the following format:
+
+    # Question: the input question you must answer
+    # Thought: you should always think about what to do
+    # Action: the action to take, should be one of [{tool_names}]
+    # Action Input: the input to the action
+    # Observation: the result of the action
+    # ... (this Thought/Action/Action Input/Observation can repeat N times)
+    # Thought: I now know the final answer
+    # Final Answer: the final answer to the original input question"""
+    # SUFFIX = """Begin!
+
+    # Question: {input}
+    # Thought:{agent_scratchpad}"""
+
 
      # Initialize agent
     agent = initialize_agent(
         tools, 
         llm, 
-        agent=AgentType.CHAT_ZERO_SHOT_REACT_DESCRIPTION, 
+        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, 
         verbose=is_agent_verbose, 
         max_iterations=max_iterations, 
         return_intermediate_steps=return_thought_process, 
         memory=memory,
-        agent_kwargs={'system_message_prefix':PREFIX},
         handle_parsing_errors=True)
+    # agent_kwargs={'prefix':PREFIX, 'format_instructions':FORMAT_INSTRUCTIONS, 'suffix':SUFFIX},
 
     return agent
-    
+    #        agent_kwargs={'system_message_prefix':PREFIX},
+
 
 def handle_multi_step_query(agent, query: str, messages_history: List):
     params = {'input': query, 'chat_history': messages_history}

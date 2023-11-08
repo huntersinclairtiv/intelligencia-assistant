@@ -52,6 +52,23 @@ CONTENT:\n {document}\n
 
 Final answer:"""
 
+gpt4_summary_template = """Summarize the conversation chat messages in the CONTENT section below. You should follow the following rules when generating the summary: \n
+- Attempt to preserve important questions and answers related to business context, companies, or projects as best you can. \n
+- The summary should be comprehensive but well structured and organized into logical sections. \n
+- Return the summary without any explainations or introductions. \n
+- For each summary section you MUST include the related "Source_URL" with this format and replacing [url] with the Source_URL: <[url]|🔗ref> \n
+- Maintain any link urls or channel references with the exact syntax or markdown that you are provided in the CONTENT below. \n
+- Prioritize the context of questions and answers over the participants in the conversation. \n
+- The summary should be returned as a multi-paragraph summary with appropriate sections, headings, and bullet points, and use Slack-specific markdwn formatting where appropriate. For example bold text surrounded by "*", italic surrounded by "_". \n
+- REMEMBER: Go directly into summarizing the content of the conversation and DO NOT start with generalizations like 'This is a conversation between ...'.\n\n 
+
+*******************\n
+CONTENT:\n {document}\n
+*******************\n\n
+
+Final answer:"""
+
+
 template = """You are an assistant to help summarize long conversations between multiple employees at Thinktiv, a business consulting company, that happen in a Slack channel. 
 Summarize the conversation chat messages in the CONTENT section below. You should follow the following rules when generating the summary:
 - Attempt to preserve important questions and answers related to business context, companies, or projects as best you can.
@@ -126,6 +143,9 @@ SUMMARY_PROMPT = PromptTemplate(
 SIMPLE_SUMMARY_PROMPT = PromptTemplate(
     input_variables=["document"], template=simple_template
 )
+GPT4TURBO_SUMMARY_PROMPT = PromptTemplate(
+    input_variables=["document"], template=gpt4_summary_template
+)
 SUM_SUMMARY_PROMPT = PromptTemplate(
     input_variables=["document"], template=sum_template
 )
@@ -134,6 +154,8 @@ QUES_PROMPT = PromptTemplate(
 )
 
 llm=ChatOpenAI(temperature=0.5, openai_api_key=openai_api_key, model=model_name) # type: ignore
+llm_gpt4turbo=ChatOpenAI(temperature=0.5, openai_api_key=openai_api_key, model="gpt-4-1106-preview") # type: ignore
+#llm_gpt4turbo=ChatOpenAI(temperature=0.5, openai_api_key=openai_api_key, model="gpt-3.5-turbo-1106") # type: ignore
 llm_summary_chain = LLMChain(
     llm=llm,
     prompt=SUMMARY_PROMPT
@@ -149,6 +171,10 @@ llm_sum_summary_chain = LLMChain(
 llm_ques_chain = LLMChain(
     llm=llm,
     prompt=QUES_PROMPT
+)
+llm_gpt4turbo_summary_chain = LLMChain(
+    llm=llm_gpt4turbo,
+    prompt=GPT4TURBO_SUMMARY_PROMPT
 )
 
 def is_dm(message) -> bool:
@@ -230,6 +256,52 @@ def summarize_summary(document):
 def getQuestionsForChunk(metadata, context):
     result = llm_ques_chain({'metadata': metadata, 'context': context})
     return result["text"]
+
+def summarizePartsGPT4Turbo(selectedDocs):
+    summarizedChunks = []
+    for thisdoc in selectedDocs:
+        doc_parts = thisdoc.page_content.split("Conversation chat messages below:\n")
+        thisdoc.page_content = doc_parts[len(doc_parts) - 1]
+        if ("source_url" in thisdoc.metadata):
+            message_url = thisdoc.metadata["source_url"]
+            if (message_url != "" and message_url != None):
+                thisdoc.page_content = f"The following conversation is associated with this \nSource URL: {message_url}\n" + thisdoc.page_content
+        summarizedChunks.append(thisdoc.page_content)
+
+    full_chunk = "==============================\n\n".join(summarizedChunks)
+    #sumDoc = Document(page_content=full_chunk, metadata={})
+    result = llm_gpt4turbo_summary_chain(full_chunk)
+    summary = result["text"]
+
+    logging.info('GPT4_summary: %s', summary)
+    return summary
+
+def summarizeParts(selectedDocs):
+    summarizedChunks = []
+    for thisdoc in selectedDocs:
+        summary = summarize(thisdoc, "")
+        if ("source_url" in thisdoc.metadata):
+            message_url = thisdoc.metadata["source_url"]
+            if (message_url != "" and message_url != None):
+                summary += f" <{message_url}|🔗ref>"
+        summarizedChunks.append(summary)
+
+    full_summary = "\n\n".join(summarizedChunks)
+    logging.info('full_summary: %s', full_summary)
+
+    #now take the full summary from all the parts and chunk it so we can summarize it further.
+    subChunks = chunkStr(full_summary, 3500)
+    sum_summary = ""
+    if (len(subChunks) > 1):
+        subChunks = chunkStr(full_summary, 2000)
+        for subChunk in subChunks:
+            sum_summary += subChunk.page_content
+            sum_summary = summarize_summary(sum_summary)
+    else :
+        sum_summary = summarize_summary(full_summary)
+    logging.info('sum_summary: %s', sum_summary)
+
+    return (full_summary, sum_summary)
 
 #TODO: create a command to store embeddings for a channel - I think we should probably have a table that tracks 
 # the last timestamp for embedding for channel history and run catchup for it on some interval or trigger???
@@ -331,33 +403,13 @@ def storeEmbeddings(documents: List[str], links: List[str], last_ts: float, chan
 
     logging.info('START SUMMARIZING : %s', str(len(selectedDocs)))
     
-    summarizedChunks = []
-    for thisdoc in selectedDocs:
-        summary = summarize(thisdoc, "")
-        if ("source_url" in thisdoc.metadata):
-            message_url = thisdoc.metadata["source_url"]
-            if (message_url != "" and message_url != None):
-                summary += f" <{message_url}|🔗ref>"
-        summarizedChunks.append(summary)
-
-    full_summary = "\n\n".join(summarizedChunks)
-    logging.info('full_summary: %s', full_summary)
-
-    #now take the full summary from all the parts and chunk it so we can summarize it further.
-    subChunks = chunkStr(full_summary, 3500)
-    sum_summary = ""
-    if (len(subChunks) > 1):
-        subChunks = chunkStr(full_summary, 2000)
-        for subChunk in subChunks:
-            sum_summary += subChunk.page_content
-            sum_summary = summarize_summary(sum_summary)
-    else :
-        sum_summary = summarize_summary(full_summary)
-    logging.info('sum_summary: %s', sum_summary)
+    full_summary = summarizePartsGPT4Turbo(selectedDocs)
+    #(full_summary, sum_summary) = summarizeParts(selectedDocs)
 
     sum_result = storeSummaryInDB(full_summary, last_ts, channel, channel_name, reference_name)
-    sum_result = storeSummaryInDB(sum_summary, last_ts, channel, channel_name, reference_name)
-    return sum_summary, full_summary
+    #sum_result = storeSummaryInDB(sum_summary, last_ts, channel, channel_name, reference_name)
+    #return full_summary, full_summary
+    return full_summary, full_summary
 
 def summarizeLongDocument(document: str, inquiry: str):
     #Chunk document into 8000 char chunks

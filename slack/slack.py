@@ -14,7 +14,9 @@ from slack.slack_functions import (
     slack_respond_to_gpt_conversation, 
     slack_respond_with_new_agent, 
     slack_summarize_channel,
-    slack_store_channel
+    slack_store_channel,
+    slack_store_channel_archive,
+    slack_respond_with_doc_qa
 )
 
 # logger in a global context
@@ -55,14 +57,16 @@ def handle_reaction_added_events(body, logger):
 @app.event("message")
 def handle_message_events(event, ack):
     if (is_dm(event)):
-        slack_respond_with_new_agent(agent=basic_agent, ack=ack, app=app, event=event)
+        #slack_respond_with_new_agent(agent=basic_agent, ack=ack, app=app, event=event)
+        slack_respond_with_doc_qa(ack=ack, app=app, event=event)
     return
 
 
 @app.event("app_mention")
 def handle_mention(event, ack):
     #slack_respond_with_agent(agent=agent, ack=ack, app=app, event=event)
-    slack_respond_with_new_agent(agent=basic_agent, ack=ack, app=app, event=event)
+    #slack_respond_with_new_agent(agent=basic_agent, ack=ack, app=app, event=event)
+    slack_respond_with_doc_qa(ack=ack, app=app, event=event)
 
 
 @app.command("/upload-new-doc")
@@ -119,6 +123,13 @@ def handle_store_channel(body, say, ack):
     ack({"response_type": "in_channel","unfurl_links": False, "unfurl_media": False})
 
     slack_store_channel(ack=ack, app=app, say=say, body=body)
+
+@app.command("/store_channel_archive")
+def handle_store_channel(body, say, ack):
+    ack({"response_type": "in_channel","unfurl_links": False, "unfurl_media": False})
+
+    slack_store_channel_archive(ack=ack, app=app, say=say, body=body)
+
 
 # @app.error
 # def custom_error_handler(error, body, logger):

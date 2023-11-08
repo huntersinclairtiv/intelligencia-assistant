@@ -55,7 +55,8 @@ client_options = ClientOptions(postgrest_client_timeout=Timeout(None))
 supabase: Client = create_client(supabase_url, supabase_key, options=client_options) # type: ignore
 # Initialize the OpenAI module, load and run the summarize chain
 llm=ChatOpenAI(temperature=0, openai_api_key=openai_api_key, model=model_name)
-llm_conv=ChatOpenAI(temperature=0.2, openai_api_key=openai_api_key, model=model_name)
+llm_conv=ChatOpenAI(temperature=0.5, openai_api_key=openai_api_key, model=model_name)
+llm_gpt4turbo=ChatOpenAI(temperature=0.5, openai_api_key=openai_api_key, model="gpt-4-1106-preview")
 embeddings=OpenAIEmbeddings(openai_api_key=openai_api_key, chunk_size=3500)
 #toolkit = SQLDatabaseToolkit(db=supabase, llm=llm)
 db_url = f'postgresql://{supabase_user}:{supabase_password}@{supabase_host}:5432/postgres'
@@ -112,16 +113,28 @@ def getDocumentConversationChain():
     )
     # search_kwargs={'filter': {'paper_title':'GPT-4 Technical Report'}}
 
-    qa_template = """Use the following CONTEXT to answer the question at the end to the best of your ability. You should think critically about the question and make inferences as needed from related context or conversation. 
-    If the question asked has no relevant context available, you should attempt to answer the question based on the information you have been trained on as a LLM, but if you are not confident on the answer, just respond with nothing for the answer, don't try to make up an answer.\n
+    qa_template = """Use the following CONTEXT to answer the user's question to the best of your ability. You should think critically and laterally about the question and make inferences as needed from the related context, metadata, or conversation. If the provided context is a conversation, then you should assume it applies to the metadata provided. 
+    If the question asked has no relevant context available, you should attempt to answer the question based on the information you have been trained on as a LLM, but if you are not confident on the answer, just respond with ONLY the word 'NA' for the answer, don't try to make up an answer.\n
     ------------\n
     CONTEXT: \n{context}\n
     ------------\n
-    Question: {question}\n
+    Question: {question} from the conversation and context provided OR respond with 'nothing' if not relevant at all?\n
     Answer:"""
     QA_PROMPT = PromptTemplate(
         input_variables=["context", "question"], template=qa_template
     )
+
+    qa_template_full = """Use the following CONTEXT to answer the user's question to the best of your ability. You should think critically and laterally about the question and make inferences as needed from the related context, metadata, or conversation. If the provided context is a conversation, then you should assume it applies to the metadata provided. 
+    If the question asked has no relevant context available, you should attempt to answer the question based on the information you have been trained on as a LLM, but if you are not confident on the answer, just respond with ONLY the word 'NA' for the answer, don't try to make up an answer.\n
+    ------------\n
+    CONTEXT: \n{context}\n
+    ------------\n
+    Question: {question} from the conversation and context provided?\n
+    Answer:"""
+    QA_PROMPT_FULL = PromptTemplate(
+        input_variables=["context", "question"], template=qa_template_full
+    )
+
 
     condense_template = ("Given the following conversation chat history and a ""Follow Up Question"", rephrase the follow up question to be a standalone question, in its original language.  If the follow up question does not need additional context or clarity, then just return the follow up question. Otherwise, if the follow up question can be improved with additional details provided by the chat history, then return a new standalone question with all relevant context included, but the original follow up question should be the basis for the new standalone question.\n\n"
         "______________________\n"
@@ -140,12 +153,12 @@ def getDocumentConversationChain():
 
     combine_template = (
         "Given the following extracted summaries from multiple documents or conversations, answer the final question.\n"
-        "You should disregard any parts of the summaries that say ""I don't know"" or state something similar to ""based on the conversations there is no information provided about the question.\n"
+        "You should disregard any parts of the summaries that say ""I don't know"", ""NA"", or state something similar to ""based on the conversations there is no information provided about the question.\n"
         "Prioritize summaries which help answer the question over ones that do not.\n"
         "______________________\n"
         "Summaries:\n{summaries}"
         "______________________\n"
-        "Human: {question}\n"
+        "Human: {question} from the provided 'Summaries', disregarding ones that are not applicable or say 'NA'?\n"
         "AI: "
     )
     COMBINE_PROMPT = PromptTemplate(input_variables=["summaries", "question"], template=combine_template)
@@ -155,10 +168,18 @@ def getDocumentConversationChain():
     memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer')
 
     # Create the custom chain
+    # doc_retrieval_chain = ConversationalRetrievalChain.from_llm(
+    #     llm=llm_conv, retriever=vectordb_retriever, memory=memory,
+    #     get_chat_history=lambda h : h, return_source_documents=False,
+    #     chain_type="map_reduce", condense_question_prompt=CONDENSE_QUESTION_PROMPT, rephrase_question=True,
+    #     combine_docs_chain_kwargs={'question_prompt': QA_PROMPT, "combine_prompt": COMBINE_PROMPT}, verbose=True)
+
     doc_retrieval_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm_conv, retriever=vectordb_retriever, memory=memory,
+        llm=llm_gpt4turbo, retriever=vectordb_retriever, memory=memory,
         get_chat_history=lambda h : h, return_source_documents=False,
-        chain_type="map_reduce", condense_question_prompt=CONDENSE_QUESTION_PROMPT, rephrase_question=True,
-        combine_docs_chain_kwargs={'question_prompt': QA_PROMPT, "combine_prompt": COMBINE_PROMPT}, verbose=True)
-    
+        chain_type="stuff", condense_question_llm=llm_conv, condense_question_prompt=CONDENSE_QUESTION_PROMPT, 
+        rephrase_question=True,
+        combine_docs_chain_kwargs={'prompt': QA_PROMPT_FULL}, verbose=True)
+
+
     return doc_retrieval_chain

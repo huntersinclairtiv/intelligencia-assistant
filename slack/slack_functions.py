@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from typing import List
 from consts import llm_model_type
 from ai.ai_agents import get_agent_response, handle_multi_step_query
-from ai.ai_chains import query_sql_db
+from ai.ai_chains import query_sql_db, getDocumentConversationChain
 from slack.slack_utils import get_random_thinking_message, send_slack_message_and_return_message_id, summarizeLongDocument, storeEmbeddings
 from utils import extract_messages
 from consts import demo_company_name, ai_name
@@ -34,6 +34,7 @@ load_dotenv()
 
 # LLM Initialization
 openai_api_key = os.getenv("OPENAI_API_KEY")
+user_token = os.getenv("SLACK_USER_TOKEN")
 llm = ChatOpenAI(max_retries=3, temperature=0.8,  # type: ignore
                  model=llm_model_type)
 
@@ -120,6 +121,31 @@ def get_all_user_list(app, cursor = None):
                 if result != None :
                     users += result
     return users
+
+@sleep_and_retry
+@limits(calls=TIER_2_RATELIMIT_PER_MINUTE, period=ONE_MINUTE)
+def get_all_channels(app, cursor = None):
+    response = app.client.conversations_list(
+        types="public_channel,private_channel",
+        exclude_archived=False,
+        limit=500,
+        cursor=cursor)
+    channels = []
+    #logging.info('USER RESPONSE: %s', user_response)
+    if 'channels' in response:
+        channels += response['channels']
+        logging.info('channels retrieved: %s', str(len(response['channels'])))
+    if 'response_metadata' in response:
+        meta = response["response_metadata"]
+        if 'next_cursor' in meta:
+            next_cursor = response["response_metadata"]["next_cursor"]
+            if (next_cursor != "" and next_cursor != None):
+                result = get_all_channels(app, next_cursor)
+                if result != None :
+                    channels += result
+    return channels
+    
+
 
 def get_channel_convos(app, channel):
     member_dict = {}
@@ -238,6 +264,7 @@ def get_channel_convos(app, channel):
                     reset_top_ts = False
                     top_ts = str_ts
                 #add the message to the convo with Name: Message format
+                #logging.info(F"{name}: {message['text']}\n\n")
                 document += F"{name}: {message['text']}\n\n"
                 numMessages += 1
         else:
@@ -254,6 +281,44 @@ def get_channel_convos(app, channel):
 
     return all_convos, all_convos_links, last_ts
 
+def join_channel(app, chat_channel, channel_name, ack_message_id):
+    #get the list of channels so we can look up the id:
+    channel = ""
+    channel_dict = {}
+    #TODO : get and store this in DB so we don't need to get each time.  Also store in local memory for APP
+    channels = get_all_channels(app)
+    if (channels == None): 
+        channels = []
+    for thischannel in channels:
+        channel_dict[thischannel['name']] = thischannel
+
+    rearchive = False
+    logging.info('CHANNEL NAME: %s', channel_name)
+    if (channel_name in channel_dict):
+        channel = channel_dict[channel_name]["id"]
+        logging.info('CHANNEL ID: %s', channel)
+        if ("is_member" in channel_dict[channel_name]):
+            if (channel_dict[channel_name]["is_member"] != True):
+                if ("is_archived" in channel_dict[channel_name]):
+                    if (channel_dict[channel_name]["is_archived"] == True):
+                        logging.info('UNARCHIVING: %s', channel)
+                        rearchive = True
+                        archive_result = app.client.conversations_unarchive(channel=channel, token=user_token)
+                        logging.info('UNARCHIVE RESULT: %s', archive_result)
+                logging.info('JOINING CHANNEL: %s', channel)
+                join_result = app.client.conversations_join(channel=channel)
+                logging.info('JOINED RESULT: %s', join_result)
+    else:
+        app.client.chat_update(
+            channel=chat_channel,
+            text="Channel Name was not found.  Please retry with the exact name.",
+            ts=ack_message_id
+        )
+        return
+
+    return (channel, rearchive)
+
+
 def slack_store_channel(ack, app, say, body):
     logging.info('BODY: %s', body)
     channel = body["channel_id"]
@@ -262,6 +327,8 @@ def slack_store_channel(ack, app, say, body):
         app=app, channel=channel, message=get_random_thinking_message())
 
     reference_name = body['text']
+
+    (_channel, _rearchive) = join_channel(app, channel, channel_name, ack_message_id)
 
     # If user didn't include a URL or URLs, then abort
     if (reference_name == "" or reference_name is None):
@@ -318,8 +385,65 @@ def slack_store_channel(ack, app, say, body):
         unfurl_links=False, 
         unfurl_media=False,
         thread_ts=replyTs,
-        text="Longer version of the summary: " + longSummary
+        text=longSummary
     )
+
+def slack_store_channel_archive(ack, app, say, body):
+    logging.info('BODY: %s', body)
+    chat_channel = body["channel_id"]
+    channel = ""
+    channel_name = ""
+    reference_name = ""
+    ack_message_id = send_slack_message_and_return_message_id(
+        app=app, channel=chat_channel, message=get_random_thinking_message())
+
+    body_arr = body['text'].split("|")
+    if (len(body_arr) != 2):
+        app.client.chat_update(
+            channel=chat_channel,
+            text="You must use the format CHANNEL_NAME|COMPANY OR PROJECT NAME WITH SPONSER",
+            ts=ack_message_id
+        )
+        return
+    else:
+        channel_name = body_arr[0].strip()
+        reference_name = body_arr[1].strip()
+    
+    (channel, rearchive) = join_channel(app, chat_channel, channel_name, ack_message_id)
+
+    # If user didn't include a Name, then abort
+    if (reference_name == "" or reference_name is None):
+        say("Please enter the name to associate with this channel. This will be the official company name for client channels. example: /store_channel_archive medbridge_ttv|Medbridge")
+        return
+  
+
+    (documents, links, last_ts) = get_channel_convos(app, channel)
+    #logging.info('ALL CONVOS: %s', documents)
+
+
+    #logging.info('summary: %s', document)
+    (summary, longSummary) = storeEmbeddings(documents, links, last_ts, channel, channel_name, reference_name)
+
+    if (rearchive == True):
+        rearchive_result = app.client.conversations_archive(channel=channel, token=user_token)
+        logging.info('REARCHIVE RESULT: %s', rearchive_result)
+
+
+    replyTs = ack_message_id
+
+    app.client.chat_update(
+        channel=chat_channel,
+        text="Channel Summary added as reply:",
+        ts=ack_message_id
+    )
+    app.client.chat_postMessage(
+        channel=chat_channel,
+        unfurl_links=False, 
+        unfurl_media=False,
+        thread_ts=replyTs,
+        text=longSummary
+    )
+
 
 
 def slack_summarize_channel(ack, app, say, body):
@@ -336,6 +460,40 @@ def slack_summarize_channel(ack, app, say, body):
     summary = summarizeLongDocument(document, "")
     logging.info('summary: %s', summary)
 
+
+def slack_respond_with_doc_qa(event, ack, app):
+    channel = event["channel"]
+
+    # Acknowledge user's message
+    ack()
+    ack_message_id = send_slack_message_and_return_message_id(
+        app=app, channel=channel, message=get_random_thinking_message())
+    
+    user_query = event["text"]
+
+    document_chain = getDocumentConversationChain()
+    document_chain.memory.clear()
+
+    query_results = document_chain({"question": user_query})
+    response = query_results["answer"]
+
+    if (len(response) > 3000) :
+        app.client.chat_update(
+            channel=channel,
+            text="Longer Response will be added below:",
+            ts=ack_message_id
+        )
+        app.client.chat_postMessage(
+            channel=channel,
+            text=response
+        )
+        # text=f"```\n{response}\n```"
+    else :
+        app.client.chat_update(
+            channel=channel,
+            text=response,
+            ts=ack_message_id
+        )
 
 
 def slack_respond_with_new_agent(agent, event, ack, app):

@@ -125,7 +125,7 @@ def getDocumentConversationChain():
     )
 
     qa_template_full = """Use the following CONTEXT to answer the user's question to the best of your ability. You should think critically and laterally about the question and make inferences as needed from the related context, metadata, or conversation. If the provided context is a conversation, then you should assume it applies to the metadata provided. 
-    If the question asked has no relevant context available, you should attempt to answer the question based on the information you have been trained on as a LLM, but if you are not confident on the answer, just respond with ONLY the word 'NA' for the answer, don't try to make up an answer.\n
+    If the question asked has no relevant context available, you should attempt to answer the question based on the information you have been trained on as a LLM, but don't try to make up an answer.\n
     ------------\n
     CONTEXT: \n{context}\n
     ------------\n

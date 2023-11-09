@@ -41,8 +41,8 @@ st.markdown(
 slackHandler = None
 if __name__ == "__main__":
     slackHandler = run_slack_app()
-
-if st.button("Quit App"):
-    if (slackHandler != None):
-        slackHandler.close()
-    sys.exit("Exited the App")
+    
+    if st.button("Quit App"):
+        if (slackHandler != None):
+            slackHandler.close()
+        sys.exit("Exited the App")

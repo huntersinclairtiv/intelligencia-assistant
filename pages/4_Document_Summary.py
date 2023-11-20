@@ -1,4 +1,5 @@
 import os, tempfile
+import sys
 from typing import List
 import streamlit as st
 import logging
@@ -20,6 +21,8 @@ from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from streamlit_chat import message
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.chains.query_constructor.base import AttributeInfo
+from langchain.document_loaders import UnstructuredAPIFileLoader
+
 
 st.set_page_config(
     page_title="Thinktiv Chat - Demo",
@@ -43,6 +46,7 @@ serper_api_key = os.getenv("SERPER_API_KEY")
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 model_name = os.environ.get("MODEL_NAME")
+unstructured_key = os.environ.get("UNSTRUCTURED_KEY")
 
 
 client_options = ClientOptions(postgrest_client_timeout=Timeout(None))
@@ -82,6 +86,8 @@ def init_convo_memory_main():
 # Streamlit app
 st.subheader('Document Summary')
 source_doc = st.file_uploader("Upload Source Document", type="pdf")
+st.subheader('Document Load')
+source_doc2 = st.file_uploader("Upload Source Document")
 st.subheader('Document URL')
 doc_url = st.text_input("Enter Document URL")
 st.subheader('Query Document')
@@ -132,6 +138,75 @@ if st.button("Summarize"):
             chain = load_summarize_chain(llm, chain_type="stuff")
             search = vectordb.similarity_search(query="What is the Summary?", k=5, filter={"source":source_doc.name})
             summary = chain.run(input_documents=search, question="Write a summary within 200 words.")
+
+            st.success(summary)
+
+        #except Exception as e:
+        #    st.exception(f"An error occurred: {e}")
+
+# If the 'Summarize' button is clicked
+if st.button("Summarize New"):
+    # Validate inputs
+    if not openai_api_key:
+        st.error("Please provide the missing API keys in Settings.")
+    elif not source_doc2:
+        st.error("Please provide the source document2.")
+    else:
+        #try:
+        with st.spinner('Please wait...'):
+            # Save uploaded file temporarily to disk, load and split the file into pages, delete temp file
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                tmp_file.write(source_doc2.read())
+            filename = tmp_file.name
+            loader2 = UnstructuredAPIFileLoader(
+                file_path=filename,
+                api_key=unstructured_key,
+            )
+
+            pages = loader2.load()
+            logging.info('PARSED DOCS: %s', len(pages))
+            logging.info('PARSED DOC: %s', pages[0])
+            #Document(page_content='Lorem ipsum dolor sit amet.', metadata={'source': 'example_data/fake.docx'})
+
+            #joined_content = '==============================\n\n'.join(content)
+
+            # text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+            #     separators=['==============================\n\n','\n\n','\n',' '],
+            #     chunk_size = 2500,
+            #     chunk_overlap  = int(2500/30),
+            #     encoding_name='cl100k_base',
+            # )
+
+            # pages = loader2.load_and_split(text_splitter=text_splitter)
+            os.remove(tmp_file.name)
+
+            for page in pages:
+                page.metadata["source"] = source_doc2.name
+                if doc_url :
+                    page.metadata["source_url"] = doc_url
+            logging.info('LLM PAGES: %s', pages[:2])
+            
+            # Create embeddings for the pages and insert into vector database
+            embeddings=OpenAIEmbeddings(openai_api_key=openai_api_key)
+            # vectordb = SupabaseVectorStore.from_documents(pages, embeddings, client=supabase)
+            vectordb = SupabaseVectorStore(client=supabase, embedding=embeddings, table_name= "documents")
+            #  FOR SPECIFYING IF DIFFERENT table and db query :  table_name="documents", query_name="match_documents",
+            chunk_size = 250 #maybe increase this - default is 500 for JS
+            id_list: List[str] = []
+            for i in range(0, len(pages), chunk_size):
+                chunk = pages[i : i + chunk_size]
+                result = vectordb.add_documents(chunk)  # type: ignore
+
+                if len(result) == 0:
+                    raise Exception("Error inserting: No rows added")
+
+                id_list.extend(result)
+            logging.info('id_list: %s', id_list)
+
+            # Initialize the OpenAI module, load and run the summarize chain
+            llm=ChatOpenAI(temperature=0.2, openai_api_key=openai_api_key, model=model_name)
+            chain = load_summarize_chain(llm, chain_type="stuff")
+            summary = chain.run(input_documents=pages, question="Write a comprehensive summary.")
 
             st.success(summary)
 
@@ -442,3 +517,5 @@ if st.button("Ask Only 3"):
             st.success(query_results)
             #st.success(query_results["answer"])
             #st.success(query_results["result"])
+if st.button("Quit App"):
+    sys.exit("Exited the App")

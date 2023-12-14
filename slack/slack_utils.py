@@ -198,6 +198,20 @@ def send_slack_message_and_return_message_id(app, channel, message: str):
     else:
         return ("Failed to send message.")
 
+def send_slack_reply_and_return_message_id(app, channel, ts, message: str):
+    response = app.client.chat_postMessage(
+        channel=channel,
+        thread_ts=ts,
+        unfurl_links=False, 
+        unfurl_media=False,     
+        text=message)
+    if response["ok"]:
+        message_id = response["message"]["ts"]
+        return message_id
+    else:
+        return ("Failed to send message.")
+
+
 def chunkSubstrByChar(content: List[str], size: int):
     joined_content = '==============================\n\n'.join(content)
     text_splitter = RecursiveCharacterTextSplitter(

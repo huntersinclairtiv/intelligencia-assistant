@@ -57,6 +57,8 @@ def handle_reaction_added_events(body, logger):
 @app.event("message")
 def handle_message_events(event, ack):
     if (is_dm(event)):
+        logging.info('DM Message to bot %s', event)
+
         #slack_respond_with_new_agent(agent=basic_agent, ack=ack, app=app, event=event)
         slack_respond_with_doc_qa(ack=ack, app=app, event=event)
     return
@@ -64,6 +66,7 @@ def handle_message_events(event, ack):
 
 @app.event("app_mention")
 def handle_mention(event, ack):
+    logging.info('App mention to bot %s', event)
     #slack_respond_with_agent(agent=agent, ack=ack, app=app, event=event)
     #slack_respond_with_new_agent(agent=basic_agent, ack=ack, app=app, event=event)
     slack_respond_with_doc_qa(ack=ack, app=app, event=event)

@@ -6,7 +6,7 @@ from typing import List
 from consts import llm_model_type
 from ai.ai_agents import get_agent_response, handle_multi_step_query
 from ai.ai_chains import query_sql_db, getDocumentConversationChain
-from slack.slack_utils import get_random_thinking_message, send_slack_message_and_return_message_id, summarizeLongDocument, storeEmbeddings
+from slack.slack_utils import get_random_thinking_message, send_slack_message_and_return_message_id, send_slack_reply_and_return_message_id, summarizeLongDocument, storeEmbeddings
 from utils import extract_messages
 from consts import demo_company_name, ai_name
 from supabase_wrapper import write_message_log
@@ -463,11 +463,14 @@ def slack_summarize_channel(ack, app, say, body):
 
 def slack_respond_with_doc_qa(event, ack, app):
     channel = event["channel"]
+    queryTs = event["ts"]
 
     # Acknowledge user's message
     ack()
-    ack_message_id = send_slack_message_and_return_message_id(
-        app=app, channel=channel, message=get_random_thinking_message())
+    # ack_message_id = send_slack_message_and_return_message_id(
+    #     app=app, channel=channel, message=get_random_thinking_message())
+    ack_message_id = send_slack_reply_and_return_message_id(
+        app=app, channel=channel, ts=queryTs, message=get_random_thinking_message())
     
     user_query = event["text"]
 
@@ -485,6 +488,9 @@ def slack_respond_with_doc_qa(event, ack, app):
         )
         app.client.chat_postMessage(
             channel=channel,
+            thread_ts=queryTs,
+            unfurl_links=False, 
+            unfurl_media=False,     
             text=response
         )
         # text=f"```\n{response}\n```"
@@ -494,6 +500,24 @@ def slack_respond_with_doc_qa(event, ack, app):
             text=response,
             ts=ack_message_id
         )
+
+    # if (len(response) > 3000) :
+    #     app.client.chat_update(
+    #         channel=channel,
+    #         text="Longer Response will be added below:",
+    #         ts=ack_message_id
+    #     )
+    #     app.client.chat_postMessage(
+    #         channel=channel,
+    #         text=response
+    #     )
+    #     # text=f"```\n{response}\n```"
+    # else :
+    #     app.client.chat_update(
+    #         channel=channel,
+    #         text=response,
+    #         ts=ack_message_id
+    #     )
 
 
 def slack_respond_with_new_agent(agent, event, ack, app):

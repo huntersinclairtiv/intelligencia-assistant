@@ -22,6 +22,9 @@ from streamlit_chat import message
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.chains.query_constructor.base import AttributeInfo
 from langchain.document_loaders import UnstructuredAPIFileLoader
+from langchain.document_loaders import GoogleDriveLoader
+
+
 
 
 st.set_page_config(
@@ -155,15 +158,43 @@ if st.button("Summarize New"):
         #try:
         with st.spinner('Please wait...'):
             # Save uploaded file temporarily to disk, load and split the file into pages, delete temp file
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                tmp_file.write(source_doc2.read())
-            filename = tmp_file.name
-            loader2 = UnstructuredAPIFileLoader(
-                file_path=filename,
-                api_key=unstructured_key,
+            split_tup = os.path.splitext(source_doc2.name)
+            # extract the file name and extension
+            file_name = split_tup[0]
+            # file_extension = split_tup[1]
+            # with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension, dir="temp") as tmp_file:
+            #     tmp_file.write(source_doc2.read())
+
+            # dirname, basename = os.path.split(tmp_file.name)
+            # filename = "temp/" + basename
+            # logging.info('FILE PATH: %s', filename)
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", dir="temp")
+            with open(tmp_file.name, 'w') as f:
+                f.write(os.getenv("GOOGLE_AUTH_JSON"))
+
+            dirname, basename = os.path.split(tmp_file.name)
+            filename = "temp/" + basename
+            logging.info('FILE PATH: %s', filename)
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = filename
+
+            loader2 = GoogleDriveLoader(
+                folder_id="111l24JCZxaufVOaFjy0UAeVUA_lIPlpH",
+                token_path="tokens/google_token.json",
+                credentials_path=filename,
+                # Optional: configure whether to recursively fetch files from subfolders. Defaults to False.
+                recursive=False,
             )
 
             pages = loader2.load()
+            logging.info('LOADER Key: %s',pages)
+
+            # loader2 = UnstructuredAPIFileLoader(
+            #     file_path=filename,
+            #     api_key=unstructured_key,
+            # )
+            logging.info('LOADER Key: %s', loader2.api_key)
+
+            # pages = loader2.load()
             logging.info('PARSED DOCS: %s', len(pages))
             logging.info('PARSED DOC: %s', pages[0])
             #Document(page_content='Lorem ipsum dolor sit amet.', metadata={'source': 'example_data/fake.docx'})
@@ -180,35 +211,37 @@ if st.button("Summarize New"):
             # pages = loader2.load_and_split(text_splitter=text_splitter)
             os.remove(tmp_file.name)
 
-            for page in pages:
-                page.metadata["source"] = source_doc2.name
-                if doc_url :
-                    page.metadata["source_url"] = doc_url
-            logging.info('LLM PAGES: %s', pages[:2])
+
             
-            # Create embeddings for the pages and insert into vector database
-            embeddings=OpenAIEmbeddings(openai_api_key=openai_api_key)
-            # vectordb = SupabaseVectorStore.from_documents(pages, embeddings, client=supabase)
-            vectordb = SupabaseVectorStore(client=supabase, embedding=embeddings, table_name= "documents")
-            #  FOR SPECIFYING IF DIFFERENT table and db query :  table_name="documents", query_name="match_documents",
-            chunk_size = 250 #maybe increase this - default is 500 for JS
-            id_list: List[str] = []
-            for i in range(0, len(pages), chunk_size):
-                chunk = pages[i : i + chunk_size]
-                result = vectordb.add_documents(chunk)  # type: ignore
+            # for page in pages:
+            #     page.metadata["source"] = source_doc2.name
+            #     if doc_url :
+            #         page.metadata["source_url"] = doc_url
+            # logging.info('LLM PAGES: %s', pages[:2])
+            
+            # # Create embeddings for the pages and insert into vector database
+            # embeddings=OpenAIEmbeddings(openai_api_key=openai_api_key)
+            # # vectordb = SupabaseVectorStore.from_documents(pages, embeddings, client=supabase)
+            # vectordb = SupabaseVectorStore(client=supabase, embedding=embeddings, table_name= "documents")
+            # #  FOR SPECIFYING IF DIFFERENT table and db query :  table_name="documents", query_name="match_documents",
+            # chunk_size = 250 #maybe increase this - default is 500 for JS
+            # id_list: List[str] = []
+            # for i in range(0, len(pages), chunk_size):
+            #     chunk = pages[i : i + chunk_size]
+            #     result = vectordb.add_documents(chunk)  # type: ignore
 
-                if len(result) == 0:
-                    raise Exception("Error inserting: No rows added")
+            #     if len(result) == 0:
+            #         raise Exception("Error inserting: No rows added")
 
-                id_list.extend(result)
-            logging.info('id_list: %s', id_list)
+            #     id_list.extend(result)
+            # logging.info('id_list: %s', id_list)
 
-            # Initialize the OpenAI module, load and run the summarize chain
-            llm=ChatOpenAI(temperature=0.2, openai_api_key=openai_api_key, model=model_name)
-            chain = load_summarize_chain(llm, chain_type="stuff")
-            summary = chain.run(input_documents=pages, question="Write a comprehensive summary.")
+            # # Initialize the OpenAI module, load and run the summarize chain
+            # llm=ChatOpenAI(temperature=0.2, openai_api_key=openai_api_key, model="gpt-4-1106-preview")
+            # chain = load_summarize_chain(llm, chain_type="stuff")
+            # summary = chain.run(input_documents=pages, question="Write a comprehensive summary.")
 
-            st.success(summary)
+            # st.success(summary)
 
         #except Exception as e:
         #    st.exception(f"An error occurred: {e}")

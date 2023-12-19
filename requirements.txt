@@ -64,3 +64,8 @@ google-api-python-client
 google-auth
 google-auth-httplib2 
 google-auth-oauthlib
+pdfminer.six
+pdfminer.six[image]
+PyDrive2
+pytesseract
+pdf2image

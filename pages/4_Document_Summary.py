@@ -23,8 +23,12 @@ from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.chains.query_constructor.base import AttributeInfo
 from langchain.document_loaders import UnstructuredAPIFileLoader
 from langchain.document_loaders import GoogleDriveLoader
-
-
+from pdfminer.high_level import extract_text
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
+from PIL import Image
+import pytesseract
+from pdf2image import convert_from_path
 
 
 st.set_page_config(
@@ -152,8 +156,6 @@ if st.button("Summarize New"):
     # Validate inputs
     if not openai_api_key:
         st.error("Please provide the missing API keys in Settings.")
-    elif not source_doc2:
-        st.error("Please provide the source document2.")
     else:
         #try:
         with st.spinner('Please wait...'):
@@ -245,6 +247,61 @@ if st.button("Summarize New"):
 
         #except Exception as e:
         #    st.exception(f"An error occurred: {e}")
+
+if st.button("Summarize New 3"):
+    # Validate inputs
+    if not openai_api_key:
+        st.error("Please provide the missing API keys in Settings.")
+    else:
+        #try:
+        with st.spinner('Please wait...'):
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", dir="temp")
+            with open(tmp_file.name, 'w') as f:
+                f.write(os.getenv("GOOGLE_AUTH_JSON"))
+
+            dirname, basename = os.path.split(tmp_file.name)
+            filename = "temp/" + basename
+            logging.info('FILE PATH: %s', filename)
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = filename
+            gauth = GoogleAuth(settings={
+                    "client_config_backend": "file",
+                    "client_config_file": filename,
+                    "save_credentials": False,
+                    "oauth_scope": ["https://www.googleapis.com/auth/drive"],
+                })
+            gauth.LocalWebserverAuth()
+            drive = GoogleDrive(gauth)
+
+            #fileId = "1g-5a7XZdxh4Rfan6s5hUUvTILPKLX_zh" #SOW
+            fileId = "1pwLNeggqZNEc9kn7FJ9WqEj6iybOzLwI" #Classy
+            #fileId = "1g1h_iD7ONcKYgDnefgO9_4b0LCeAlIcKEyH0cLmRu_Y" #HRSoft Slides
+
+            thisFile = drive.CreateFile({"id": fileId})
+            thisFile.FetchMetadata(fetch_all=True)
+            logging.info('File MEtadat: %s',thisFile.metadata)
+            logging.info('File Data: %s',thisFile)
+            tempFile = "temp/" + thisFile.metadata["originalFilename"]
+            
+            #text = thisFile.GetContentString(mimetype="text/plain")
+
+            thisFile.GetContentFile(filename=tempFile, mimetype=thisFile.metadata["mimeType"])
+            text = extract_text(tempFile)
+
+            logging.info('PARSED DOC: %s', text)
+
+            #test code for trying to parse from image - doesn't work
+            # filePath = tempFile
+            # doc = convert_from_path(filePath)
+            # path, fileName = os.path.split(filePath)
+            # fileBaseName, fileExtension = os.path.splitext(fileName)
+
+            # for page_number, page_data in enumerate(doc):
+            #     txt = pytesseract.image_to_string(Image.fromarray(page_data)).encode("utf-8")
+            #     logging.info("Page # {} - {}".format(str(page_number),txt))
+
+            os.remove(tmp_file.name)
+            os.remove(tempFile)
+
 
 if st.button("Ask Only"):
     # Validate inputs

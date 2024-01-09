@@ -62,6 +62,8 @@ llm = ChatOpenAI(max_retries=3, model=llm_model_type)
 embeddings = CustomEmbeddings()
 faiss_embeddings = custom_embeddings.CustomFaissEmbeddings()
 company_handbook_faiss_path = "./faiss_company_handbook"
+store = custom_supabase.SupabaseDocstore('ev_doc_store')
+
 
 # Specify the path to your image file
 # image_path = 'figures/figure-1-1.jpg'
@@ -300,30 +302,147 @@ def process_image_overlaps(cor_list, image_path_mapping):
     return final_image_path_list
 
 
+def create_parent_child_vectstore(file_path):
+    doc = UnstructuredFileLoader(
+        file_path=file_path,
+        strategy='hi_res',
+        mode='elements',
+        skip_infer_table_types=[],
+        pdf_infer_table_structure=True,
+        pdf_extract_images=True,
+        chunking_strategy='by-title'
+    ).load()
+    cor_list = []
+    image_path_mapping = {}
+    SUB_TEXT_LIST = ['Text', 'NarrativeText', 'BulletedText']
+    child_document_list = []
+    larger_document_list = []
+    final_image_path_list = []
+    last_title = None
+    last_narrative_text = None
+    curr_chunk = ""
+    doc_id = str(uuid.uuid4())
+    for d in doc:
+        page_content = d.page_content
+        category = d.metadata['category']
+        d.metadata['id'] = doc_id
+        table_details = d.metadata.get('text_as_html')
+        # NARRATIVE TEXT HAS TO be one of text, narrative_text, BulletedText
+        if category in SUB_TEXT_LIST:
+            last_narrative_text = page_content
+        # SKIP INFERING PAGE NUMBERS
+        if page_content.isdigit():
+            continue
+        # PROCESSING BEGINS
+
+        # PROCESSING TITLE
+        if d.metadata.get('category') == 'Title':
+            if last_title and len(curr_chunk) > 0:
+                larger_document_list.append((
+                    d.metadata['id'],
+                    Document(
+                        page_content=f'{last_title}\n{curr_chunk}', metadata=d.metadata)
+                ))
+            doc_id = str(uuid.uuid4())
+            curr_chunk = ""
+            last_title = f'{d.page_content}: \n'
+        # PROCESSING IMAGE
+        elif category == 'Image':
+            image_path = d.metadata.get('image_path')
+            cor_list.append(d.metadata['coordinates']['points'])
+            (x1, y1), _, (x2, y2), _ = d.metadata['coordinates']['points']
+            d.metadata['last_title'] = last_title
+            d.metadata['last_narrative_text'] = last_narrative_text
+            image_path_mapping[f'{x1}_{y1}_{x2}_{y2}'] = d.metadata
+            # DELAY PROCESSING OF IMAGE
+        # PROCESSING TABLE
+        elif table_details:
+            # we can provide title and narrative text here as well if that makes any sense?
+            table_uuid = str(uuid.uuid4())
+            d.metadata['id'] = table_uuid
+            larger_document_list.append((
+                table_uuid,
+                Document(
+                    page_content=table_details, metadata=d.metadata)
+            ))
+            # PASSING IN LAST_TITLE AND NARRATIVE TEXT FOR TABLES AS WELL
+            child_document_list.extend(
+                open_ai_integration.get_table_description(table_details, d.metadata, last_title, last_narrative_text))
+        else:
+            child_document_list.extend(custom_text_parser.parse_paragraph(
+                d.page_content, d.metadata, last_title))
+
+            if len(curr_chunk) + len(page_content) > 4000:
+                # update meta deta, currently its inappropriate
+                # HANDLE paragraphs pre-chunked to multiple pages
+                larger_document_list.append((d.metadata['id'],
+                                             Document(page_content=f'{last_title}\n{curr_chunk}', metadata=d.metadata)))
+                doc_id = str(uuid.uuid4())  # update the doc_id for new parent
+                curr_chunk = page_content
+            else:
+                curr_chunk += (page_content)
+
+            # list of documents with summarised paragraph and questions if the size is greater than 300
+            add_summary = len(page_content) > 300
+            child_document_list.extend(
+                open_ai_integration.get_paragraph_description(page_content, d.metadata, add_summary))
+
+    if len(curr_chunk) > 0:
+        larger_document_list.append((doc_id,
+                                     Document(page_content=f'{last_title}\n{curr_chunk}', metadata={'id': doc_id})))
+        child_document_list.extend(
+            open_ai_integration.get_paragraph_description(curr_chunk, d.metadata, len(curr_chunk) > 300))
+
+        # child_document_list.extend(custom_text_parser.parse_paragraph(
+        #     d.page_content, d.metadata, last_title))
+        # d.page_content = f'{last_title}{d.page_content}'
+    final_image_path_list = process_image_overlaps(
+        cor_list, image_path_mapping)
+    print(final_image_path_list)
+    if final_image_path_list:
+        a, b = process_extracted_files(final_image_path_list)
+        print("RESPONSE FROM IMAGES--> parent ", a)
+        print("RESPONSE FROM IMAGES--> child ", b)
+        child_document_list.extend(b)
+        larger_document_list.extend(a)
+    # # TODO: improve this to pass in parent document
+    with open('child_list.txt', 'w') as f:
+        for d in child_document_list:
+            f.write(f'{d.page_content}\n\n')
+
+    vectorstore = FAISS.from_documents(
+        documents=child_document_list, embedding=embeddings)
+
+    merge_with_old_vectorstore(vectorstore)
+    store.mset(larger_document_list)
+
+    # CODE ENDS
+
+
+def create_and_merge(path):
+    """
+    creates a vector store and merges it with existing vector store
+    """
+    # _, file_extension = os.path.splitext(path)
+    # if file_extension.lower() == ".csv":
+    #     path = process_csv_files(path)
+    # elif file_extension.lower() == ".xlsx":
+    #     path = process_excel_file(path)
+    # print(file_extension)
+    # print(path)
+    document = UnstructuredFileLoader(
+        file_path=path,
+        strategy='hi_res',
+        skip_infer_table_types=[],
+        pdf_infer_table_structure=True,
+        pdf_extract_images=True
+    ).load()
+    new_vectorstore = initialize_vectorstore(document, False)
+    # return new_vectorstore
+    return merge_with_old_vectorstore(new_vectorstore)
+
+
 def upload_files():
-
-    def create_and_merge(path):
-        """
-        creates a vector store and merges it with existing vector store
-        """
-        # _, file_extension = os.path.splitext(path)
-        # if file_extension.lower() == ".csv":
-        #     path = process_csv_files(path)
-        # elif file_extension.lower() == ".xlsx":
-        #     path = process_excel_file(path)
-        # print(file_extension)
-        # print(path)
-        document = UnstructuredFileLoader(
-            file_path=path,
-            strategy='hi_res',
-            skip_infer_table_types=[],
-            pdf_infer_table_structure=True,
-            pdf_extract_images=True
-        ).load()
-        new_vectorstore = initialize_vectorstore(document, False)
-        # return new_vectorstore
-
-        return merge_with_old_vectorstore(new_vectorstore)
 
     new_vectorstore = None
     # new_vectorstore = create_and_merge('test_docs/Student details large.docx')
@@ -342,7 +461,6 @@ def upload_files():
     #     "What are the marks for Ekansh?"))
 
     # store = InMemoryStore()
-    store = custom_supabase.SupabaseDocstore('ev_doc_store_duplicate')
 
     # fs = LocalFileStore("./new_store_location")
     # store = create_kv_docstore(fs)
@@ -382,7 +500,7 @@ def upload_files():
 
     # CODE STARTS
     # doc = UnstructuredFileLoader(
-    #     file_path='test_docs/Test_1.pdf',
+    #     file_path='test_docs/Sample_Report.pdf',
     #     strategy='hi_res',
     #     mode='elements',
     #     skip_infer_table_types=[],
@@ -435,113 +553,6 @@ def upload_files():
 
     # x1=y1=x2=y2 =0
     # for a,b,c,d in cor_list:
-    # cor_list = []
-    # image_path_mapping = {}
-    # SUB_TEXT_LIST = ['Text', 'NarrativeText', 'BulletedText']
-    # child_document_list = []
-    # parent_document_list = []
-    # larger_document_list = []
-    # final_image_path_list = []
-    # last_title = None
-    # last_narrative_text = None
-    # curr_chunk = ""
-    # doc_id = str(uuid.uuid4())
-    # for d in doc:
-    #     page_content = d.page_content
-    #     category = d.metadata['category']
-    #     d.metadata['id'] = doc_id
-    #     table_details = d.metadata.get('text_as_html')
-    #     # NARRATIVE TEXT HAS TO be one of text, narrative_text, BulletedText
-    #     if category in SUB_TEXT_LIST:
-    #         last_narrative_text = page_content
-    #     # SKIP INFERING PAGE NUMBERS
-    #     if page_content.isdigit():
-    #         continue
-
-    #     # PROCESSING BEGINS
-
-    #     # PROCESSING TITLE
-    #     if d.metadata.get('category') == 'Title':
-    #         if last_title and len(curr_chunk) > 0:
-    #             larger_document_list.append((
-    #                 d.metadata['id'],
-    #                 Document(
-    #                     page_content=f'{last_title}\n{curr_chunk}', metadata=d.metadata)
-    #             ))
-    #         doc_id = str(uuid.uuid4())
-    #         curr_chunk = ""
-    #         last_title = f'{d.page_content}: \n'
-    #     # PROCESSING IMAGE
-    #     elif category == 'Image':
-    #         image_path = d.metadata.get('image_path')
-    #         cor_list.append(d.metadata['coordinates']['points'])
-    #         (x1,y1), _, (x2,y2), _ = d.metadata['coordinates']['points']
-    #         d.metadata['last_title'] = last_title
-    #         d.metadata['last_narrative_text'] = last_narrative_text
-    #         image_path_mapping[f'{x1}_{y1}_{x2}_{y2}'] = d.metadata
-
-    #         # DELAY PROCESS OF IMAGE
-    #     # PROCESSING TABLE
-    #     elif table_details:
-    #         # we can provide title and narrative text here as well if that makes any sense?
-    #         table_uuid = str(uuid.uuid4())
-    #         d.metadata['id'] = table_uuid
-    #         larger_document_list.append((
-    #             table_uuid,
-    #             Document(
-    #                 page_content=table_details, metadata=d.metadata)
-    #         ))
-    #         child_document_list.extend(
-    #             open_ai_integration.get_table_description(table_details, d.metadata))
-    #     else:
-    #         child_document_list.extend(custom_text_parser.parse_paragraph(
-    #             d.page_content, d.metadata, last_title))
-
-    #         if len(curr_chunk) + len(page_content) > 4000:
-    #             # update meta deta, currently its inappropriate
-    #             # HANDLE paragraphs pre-chunked to multiple pages
-    #             larger_document_list.append((d.metadata['id'],
-    #                                          Document(page_content=f'{last_title}\n{curr_chunk}', metadata=d.metadata)))
-    #             doc_id = str(uuid.uuid4())  # update the doc_id for new parent
-    #             curr_chunk = page_content
-    #         else:
-    #             curr_chunk += (page_content)
-
-    #         # list of documents with summarised paragraph and questions if the size is greater than 300
-    #         add_summary = len(page_content) > 300
-    #         child_document_list.extend(
-    #             open_ai_integration.get_paragraph_description(page_content, d.metadata, add_summary))
-
-    # if len(curr_chunk) > 0:
-    #     larger_document_list.append((doc_id,
-    #                                  Document(page_content=f'{last_title}\n{curr_chunk}', metadata={'id': doc_id})))
-    #     child_document_list.extend(
-    #         open_ai_integration.get_paragraph_description(curr_chunk, d.metadata, len(curr_chunk) > 300))
-
-    #     # child_document_list.extend(custom_text_parser.parse_paragraph(
-    #     #     d.page_content, d.metadata, last_title))
-    #     # d.page_content = f'{last_title}{d.page_content}'
-    # final_image_path_list = process_image_overlaps(cor_list, image_path_mapping)
-    # print(final_image_path_list)
-    # if final_image_path_list:
-    #     a, b = process_extracted_files(final_image_path_list)
-    #     print("RESPONSE FROM IMAGES--> parent ",a)
-    #     print("RESPONSE FROM IMAGES--> child ",b)
-    #     child_document_list.extend(b)
-    #     larger_document_list.extend(a)
-    # # # TODO: improve this to pass in parent document
-    # with open('child_list.txt', 'w') as f:
-    #     for d in child_document_list:
-    #         f.write(f'{d.page_content}\n\n')
-
-    # vectorstore = FAISS.from_documents(
-    #     documents=child_document_list, embedding=embeddings)
-
-    # merge_with_old_vectorstore(vectorstore)
-    # print(larger_document_list)
-    # store.mset(larger_document_list)
-
-    # # CODE ENDS
 
     # count_f = 1
     # for x, y in larger_document_list:
@@ -550,6 +561,8 @@ def upload_files():
     # print(vectorstore.as_retriever().get_relevant_documents(
     #     'How was the share performance?'))
     # parent_child_mapping = {}
+    file_path = 'test_docs/Test_1.pdf'
+    create_parent_child_vectstore(file_path)
     vectorstore = FAISS.load_local('./faiss_company_handbook', embeddings)
     retriever = ParentDocumentRetriever(
         vectorstore=vectorstore,
@@ -616,15 +629,19 @@ def ask_questions(vector_store):
         # "What are the stats for the Number of shares issued?",
         # "How was the share performance in the first three quaters?",
         # "What was the total amount paid to shareholders?"
+        # "Compare Business VS Sales",
+        # "Contribution of Europe and France in total sales?"
+        # "Contribution of Sales by France?"
+        "Describe Sales by Region"
 
         # SINGLE PAGE QUES
-        "what were sales by product?"
-        "Compare three months vs nine months Sales"
-        "What were the total sales in 2020?",
-        "What were the reasons for fall of sales?",
-        "Describe sales distribution by region", # could not be answered, this needs to be better retrieved?
-        "What were the sales in Europe?",
-        "Provide comparion of sales for 'Semiconductors + Coating' and 'Industry + Analytics + R & D'"
+        # "what were sales by product?"
+        # "Compare three months vs nine months Sales"
+        # "What were the total sales in 2020?",
+        # "What were the reasons for fall of sales?",
+        # "Describe sales distribution by region", # could not be answered, this needs to be better retrieved?
+        # "What were the sales in Europe?",
+        # "Provide comparion of sales for 'Semiconductors + Coating' and 'Industry + Analytics + R & D'"
     ]
     final_list = []
     # final_list.extend(ques_list)
@@ -636,25 +653,25 @@ def ask_questions(vector_store):
     final_list.extend(annual_pdf_questions)
     print(final_list)
     for ques in final_list:
-        qa = RetrievalQA.from_llm(
-            llm=llm, retriever=vector_store, return_source_documents=True)
-        with get_openai_callback() as cb:
-            result = qa({"query": ques})
-            # print(result)
-            with open(f'outputs/{ques}.txt', 'w') as f:
-                f.write(result['result'])
-            print("answered ", ques)
+        # qa = RetrievalQA.from_llm(
+        #     llm=llm, retriever=vector_store, return_source_documents=True)
+        # with get_openai_callback() as cb:
+        #     result = qa({"query": ques})
+        #     # print(result)
+        #     with open(f'outputs_big_pdf/{ques}.txt', 'w') as f:
+        #         f.write(result['result'])
+        #     print("answered ", ques)
 
-        # answers = vector_store.get_relevant_documents(
-        #     query=ques, k=4)
-        # with open(f'outputs/{ques}.txt', 'w') as f:
-        #     f.write(f"Answer for {ques} is \n")
-        #     d = 1
-        #     for answer in answers:
-        #         f.write(f"Response number: {d}")
-        #         d += 1
-        #         f.write(f"\n {answer.page_content} \n")
-        # print("answered ", ques)
+        answers = vector_store.get_relevant_documents(
+            query=ques, k=4)
+        with open(f'outputs/{ques}.txt', 'w') as f:
+            f.write(f"Answer for {ques} is \n")
+            d = 1
+            for answer in answers:
+                f.write(f"Response number: {d}")
+                d += 1
+                f.write(f"\n {answer.page_content} \n")
+        print("answered ", ques)
     # qa = RetrievalQA.from_llm(
     #     llm=llm, retriever=vector_store.as_retriever(), return_source_documents=True)
 

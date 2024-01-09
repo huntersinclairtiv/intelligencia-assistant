@@ -1,0 +1,9 @@
+Answer for Describe Sales by Region is 
+Response number: 1
+ Sales by Region: 
+
+In the following table we are also summarizing sales by region. The table includes all sales in a given region, regardless of which company in the Pfeiffer Vacuum Group actually generated these sales. 
+Response number: 2
+ Interim Management Report: 
+
+Analysis of sales by Segment in the first nine months 2020 show a heterogeneous development. Increases were achieved in the segments Republic of Korea and rest of Asia, while sales in the further USA and USA (Production) showed similar sales results as in 2019. Sales in the other segments declined versus previous year. The biggest drop was recorded in France.The following graphic shows the still balanced split of consolidated sales by segments. 

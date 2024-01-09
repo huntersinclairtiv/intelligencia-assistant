@@ -144,13 +144,22 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
     QUES_LIST_PROMPT = f"""
     From the given **context**, provied a list of questions that can be answered using the context.
     The response output should be in the form of paragraph(s). 
-    Provide at most top 5 most relevant questions. 
-    Do not proivde any additional context or statements besides the questions. 
-    Also do not provide the answers to questions. 
+    Provide at most top 5 most relevant questions.
+    Provide questions that cover various aspects of the paragraph.
+    Response should be precise and to the point.
+    Do not provide the answers to questions. 
     The response output should be in the form paragraph(s).
     context: {paragraph}
     Following is an example response for ques list being generated from the **context**:
-    What was the dis
+    context:
+    For competitive reasons we decided to carry out our sales analysis by market on a
+    more consolidated level from financial year 2020 on. The previous year's figures have
+    been adjusted accordingly. For the same reason, we refrain from disclosing sales by
+    product
+    response:
+    Why is the disclosure of sales by product being refrained from, and what competitive reasons are driving this decision? Can you elaborate on the impact of the decision on the transparency of sales data and its implications for stakeholders?
+    How has the shift in the approach to sales analysis affected the overall presentation of financial information and reporting for the company?
+    What is the rationale behind the decision to carry out sales analysis by market on a more consolidated level from the financial year 2020 onwards?
     """
     messages = [
         {
@@ -248,19 +257,10 @@ def get_llm_response(context, question):
 # b = 'Y'
 # page_content = get_image_description(
 #     'figures/figure-1-2.jpg', a, b)
-# # page_content = """
-# Header: Sales by Region 9M/2020 (9M/2019)
 
-# Narrative Text: The following graphic shows the still balanced split of sales by region.
-
-# Extracted Data and Insights:
-
-# - Europe accounts for 35.9% of sales, a slight decrease from 37.2% in the previous year.
-# - The Americas contribute 26.5% to the sales, down from 26.9% the previous year.
-# - Asia represents 37.6% of sales, up from 35.9% in the prior year.
-# - The total sales amount is 453.9 million Euros, down from 467.3 million Euros the previous year.
-# - The sales by region are relatively balanced, with Europe and Asia having a more significant share compared to The Americas.
-# - A subtle shift in sales distribution is noticed, with Europe and The Americas seeing a slight decline while Asia experiences an increase.
-# """
 # print(page_content)
 # print(custom_parser.parse_paragraph(page_content))
+p = """
+The sales distribution presented in the Interim Management Report is as follows: Germany accounts for 15.6% (previously 17.6%), the Rest of Asia constitutes 18.6% (from 16.0%), France represents 6.6% (down from 9.5%), and the Republic of Korea contributes 12.5% (up from 9.9%). The USA makes up 20.1% of sales (compared to 19.5% previously), with the USA Production specifically contributing 6.6% (previously 6.1%). The Rest of Europe accounts for 16.7% of sales (compared to 17.1% previously), and All Others comprise 3.3% (down from 4.3%). The central figure is 453.9 million euros, slightly down from the previous 467.3 million euros.
+"""
+print(get_paragraph_description(p))

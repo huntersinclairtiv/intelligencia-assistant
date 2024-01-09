@@ -1,0 +1,3 @@
+The sales in Europe were 35.9% of the total sales. Given that the total sales figure was 453.9 million Euros, you can calculate the sales in Europe by multiplying the total sales by the percentage attributed to Europe.
+
+So, the calculation would be 453.9 million Euros * 35.9% = 162.9 million Euros approximately.

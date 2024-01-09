@@ -83,15 +83,27 @@ def get_image_description(img_url, header=None, narrative_text=None):
     # If the image is low resolution and unclear, try your best to extract as much data and insights as possible.
     # """
     PROMPT = f"""
-    From the following image, along with an optional header and narrative text, extract relevant data and insights.
-    Ensure flexibility in handling cases where the header and narrative text might be absent or unclear. 
+    Extract data and insights from the following image. 
+    Make use of **Header** and the **Narrative Text** if they are present and associate more information with the image.
     The aim is to index the extracted information for retrieval in an augmented generator model.
     Header: {header}
     Narrative Text: {narrative_text}
+
+    Rules:
     If the image is low resolution and unclear, try your best to extract as much data and insights as possible.
-    If no data can be extracted return empty string.
+    If the data from the image does not make any sense, return "UNEXTRACTABLE_DATA" in response.
+    If the request can not be proccessed return "UNPROCESSABLE_ENTITY" in response.
+    Response should be precize and to the point.
+    Following is an example response for when data can be extracted from image:
+    The sales distribution for the world is as follows: Asia contributed 30%, Europe is contributing 25% and rest of the world contributed 45%.
+    Asia and europe contribute over 50% of the sales across the world.
+    
+    Following should be the response when the image does not make any sense:
+    UNEXTRACTABLE_DATA
+    
     """
     encoded_image = encode_image(img_url)
+    print(encoded_image)
     response = client.chat.completions.create(
         model="gpt-4-vision-preview",
         messages=[
@@ -114,6 +126,15 @@ def get_image_description(img_url, header=None, narrative_text=None):
     return response.choices[0].message.content
 
 
+# """
+# Given a header, narrative text, and an image, the language model's primary objective is to parse the image and index the extracted data for retrieval in augmented generation.
+# If the image content is clear, focus on extracting information directly from the image.
+# In cases where the image is unclear or ambiguous, utilize the provided narrative text and header to improve the extraction results.
+# Avoid generating statements explicitly describing the image, and refrain from providing responses such as "The image displays..." or "I'm sorry, but I can't assist with that request." Instead, prioritize concise and relevant information.
+# If the image itself does not provide any meaningful data, return an empty string.
+# The goal is to generate responses suitable for indexing in a vector store, with a focus on informative and contextually relevant insights.
+# """
+
 def get_paragraph_description(paragraph, metadata={}, add_summary=False):
     PROMPT = f"""
     From the given **context**, provide its detailed summary and insights that can be easily indexed for a Retrieval Augmented Genration Model. 
@@ -128,6 +149,8 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
     Also do not provide the answers to questions. 
     The response output should be in the form paragraph(s).
     context: {paragraph}
+    Following is an example response for ques list being generated from the **context**:
+    What was the dis
     """
     messages = [
         {
@@ -157,10 +180,12 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
     return docs
 
 
-def get_table_description(table, metadata={}):
+def get_table_description(table, metadata={}, header=None, narrative_text=None):
     PROMPT = f"""
     From the given **table**, provide its detailed summary and insights that can be easily indexed for a Retrieval Augmented Genration Model. 
-    The response output should be in the form paragraph(s). 
+    The response output should be in the form paragraph(s).
+    Header: {header}
+    Narrative Text: {narrative_text}
     table: {table}
     """
     QUES_LIST_PROMPT = f"""
@@ -198,9 +223,6 @@ def get_table_description(table, metadata={}):
     return docs
 
 
-# print(get_table_description("""<table><thead><th></th><th colspan="2">Three months ended September 30,</th><th colspan="2">Nine months ended September 30,</th></thead><thead><th></th><th>2020</th><th>2019</th><th>2020</th><th>2019</th></thead><tr><td></td><td>in K€</td><td>in K€</td><td>in K€</td><td>in K€</td></tr><tr><td>Asia</td><td>61,957</td><td>54,225</td><td>170,532</td><td>167,626</td></tr><tr><td>Europe</td><td>53,593</td><td>58,852</td><td>162,285</td><td>173,791</td></tr><tr><td>The Americas</td><td>36,175</td><td>43,107</td><td>120,702</td><td>125,810</td></tr><tr><td>Rest of the world</td><td>282</td><td>41</td><td>342</td><td>106</td></tr><tr><td>Total</td><td>152,007</td><td>156,225</td><td>453,861</td><td>467,333</td></tr></table>"""))
-
-
 def get_llm_response(context, question):
     PROMPT = f"""
     Using the provided **context** answer the following **question**.
@@ -220,3 +242,25 @@ def get_llm_response(context, question):
     ]
     response = get_openai_respone(messages, model)
     return response.choices[0].message.content
+
+
+# a = 'X'
+# b = 'Y'
+# page_content = get_image_description(
+#     'figures/figure-1-2.jpg', a, b)
+# # page_content = """
+# Header: Sales by Region 9M/2020 (9M/2019)
+
+# Narrative Text: The following graphic shows the still balanced split of sales by region.
+
+# Extracted Data and Insights:
+
+# - Europe accounts for 35.9% of sales, a slight decrease from 37.2% in the previous year.
+# - The Americas contribute 26.5% to the sales, down from 26.9% the previous year.
+# - Asia represents 37.6% of sales, up from 35.9% in the prior year.
+# - The total sales amount is 453.9 million Euros, down from 467.3 million Euros the previous year.
+# - The sales by region are relatively balanced, with Europe and Asia having a more significant share compared to The Americas.
+# - A subtle shift in sales distribution is noticed, with Europe and The Americas seeing a slight decline while Asia experiences an increase.
+# """
+# print(page_content)
+# print(custom_parser.parse_paragraph(page_content))

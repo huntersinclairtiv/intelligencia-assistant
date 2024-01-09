@@ -1,0 +1,23 @@
+When comparing the sales figures for 'Semiconductors + Coating' against 'Industry + Analytics + R & D':
+
+For the three months ended September 30, 2020:
+- 'Semiconductors + Coating' sales were 75,022 K€
+- 'Industry + Analytics + R & D' sales were 76,985 K€
+
+For the nine months ended September 30, 2020:
+- 'Semiconductors + Coating' sales were 233,500 K€
+- 'Industry + Analytics + R & D' sales were 220,361 K€
+
+Comparatively, during the three-month period, sales in 'Industry + Analytics + R & D' were slightly higher than those in 'Semiconductors + Coating'. However, looking at the nine-month period, 'Semiconductors + Coating' sales were higher than those for 'Industry + Analytics + R & D'. 
+
+Additionally, if we compare the year-on-year figures:
+
+For 'Semiconductors + Coating':
+- 2020 three-month sales increased from 70,729 K€ in 2019 to 75,022 K€.
+- 2020 nine-month sales increased from 218,047 K€ in 2019 to 233,500 K€.
+
+For 'Industry + Analytics + R & D':
+- 2020 three-month sales decreased from 85,496 K€ in 2019 to 76,985 K€.
+- 2020 nine-month sales decreased from 249,286 K€ in 2019 to 220,361 K€.
+
+This indicates that there was a positive trend in sales for 'Semiconductors + Coating' both quarterly and over the nine months, while there was a decline in sales for 'Industry + Analytics + R & D' in the same periods, likely influenced by the COVID-19 situation as mentioned in the context.

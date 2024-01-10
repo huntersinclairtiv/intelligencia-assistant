@@ -103,7 +103,6 @@ def get_image_description(img_url, header=None, narrative_text=None):
     
     """
     encoded_image = encode_image(img_url)
-    print(encoded_image)
     response = client.chat.completions.create(
         model="gpt-4-vision-preview",
         messages=[
@@ -137,31 +136,43 @@ def get_image_description(img_url, header=None, narrative_text=None):
 
 def get_paragraph_description(paragraph, metadata={}, add_summary=False):
     PROMPT = f"""
-    From the given **context**, provide its detailed summary and insights that can be easily indexed for a Retrieval Augmented Genration Model. 
-    The response output should be in the form paragraph(s). 
+    From the given **context**, provide a detailed summary and insights that can be easily indexed for a Retrieval Augmented Genration Model. 
+    The response should be precise and to the point.
+    The response must not contain any explicit mention of any context, summary or insights.
+    The response should not contain any bullet points or numbering for insights or any other aspect of response.
     context: {paragraph}
-    """
+    # """
+    # QUES_LIST_PROMPT = f"""
+    # Provide a list of questions that can be answered using the following **context**.
+    # The questions must cover various aspects of the context.
+    # The response should be precise and to the point.
+    # The response should not contain any bullet points or numbering for questions.
+    # context: {paragraph}
+    # Generate questions that can be answered directly from the provided text.
+    # Ensure that the questions are relevant and focused on extracting information present in the context.
+    # Avoid generating questions that require external knowledge or assumptions.
+    # Following is an example response for when some questions can be generated using the given context:
+    # What conclusions can be drawn about the market strategy based on the balanced regional sales portrayed in the graphic? What are the stats for number of shares issued?
+    # What was the value of a share in Sept 2020?
+    # Following should be the response when no question can be generated using the given context:
+    # UNEXTRACTABLE_DATA
+    # """
     QUES_LIST_PROMPT = f"""
-    From the given **context**, provied a list of questions that can be answered using the context.
-    The response output should be in the form of paragraph(s). 
-    Provide at most top 5 most relevant questions.
-    Provide questions that cover various aspects of the paragraph.
-    Response should be precise and to the point.
-    Do not provide the answers to questions. 
-    The response output should be in the form paragraph(s).
-    context: {paragraph}
-    Following is an example response for ques list being generated from the **context**:
-    context:
-    For competitive reasons we decided to carry out our sales analysis by market on a
-    more consolidated level from financial year 2020 on. The previous year's figures have
-    been adjusted accordingly. For the same reason, we refrain from disclosing sales by
-    product
-    response:
-    Why is the disclosure of sales by product being refrained from, and what competitive reasons are driving this decision? Can you elaborate on the impact of the decision on the transparency of sales data and its implications for stakeholders?
-    How has the shift in the approach to sales analysis affected the overall presentation of financial information and reporting for the company?
-    What is the rationale behind the decision to carry out sales analysis by market on a more consolidated level from the financial year 2020 onwards?
+    Given Text:
+    {paragraph}
+    
+    Prompt:
+    Generate questions that can be answered directly from the provided text and are very factual and informative.
+    Ensure that the questions are relevant and focused on extracting information present in the context.
+    Avoid generating questions that require external knowledge or assumptions.
+    The response should not contain any bullet points or numbering for questions.
     """
+    # If the paragraph contains no relevant information that might be used for answering, return "UNEXTRACTABLE_DATA"
     messages = [
+        {
+            "role": "system",
+            "content": "You are a trained assistant that extracts the questions that can be answered using a given context"
+        },
         {
             "role": "user",
             "content": [
@@ -175,6 +186,8 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
         response = get_openai_respone(messages, model)
         docs = custom_parser.parse_paragraph(
             response.choices[0].message.content, metadata)
+        print(response.choices[0].message.content)
+
     messages = [
         {
             "role": "user",
@@ -184,6 +197,7 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
         }
     ]
     response = get_openai_respone(messages, model)
+    print(response.choices[0].message.content)
     docs.extend(custom_parser.parse_paragraph(
         response.choices[0].message.content, metadata))
     return docs
@@ -196,14 +210,14 @@ def get_table_description(table, metadata={}, header=None, narrative_text=None):
     Header: {header}
     Narrative Text: {narrative_text}
     table: {table}
+    The response should be precise and to the point.
+    The response must not contain any explicit mention of any table, header, narrative text, summary or insights.
     """
     QUES_LIST_PROMPT = f"""
-    From the given **table**, provied a list of questions that can be answered using the table.
-    The response output should be in the form of paragraph(s).
-    Provide at most top 5 most relevant questions. 
-    Do not proivde any additional context or statements besides the questions. 
-    Also do not provide the answers to questions. 
-    The response output should be in the form paragraph(s). 
+    Provide a list of questions that can be answered using the following **table**.
+    Provide at most top 5 most relevant questions. The questions must cover various aspects of the table.
+    The response should be precise and to the point.
+    The response should not contain any bullet points or numbering for questions.
     table: {table}
     """
     messages = [
@@ -216,6 +230,7 @@ def get_table_description(table, metadata={}, header=None, narrative_text=None):
     ]
     model = 'gpt-4-1106-preview'
     response = get_openai_respone(messages, model)
+    print(response.choices[0].message.content)
     docs = custom_parser.parse_paragraph(
         response.choices[0].message.content, metadata)
     messages = [
@@ -227,6 +242,7 @@ def get_table_description(table, metadata={}, header=None, narrative_text=None):
         }
     ]
     response = get_openai_respone(messages, model)
+    print(response.choices[0].message.content)
     docs.extend(custom_parser.parse_paragraph(
         response.choices[0].message.content, metadata))
     return docs
@@ -253,14 +269,22 @@ def get_llm_response(context, question):
     return response.choices[0].message.content
 
 
-# a = 'X'
-# b = 'Y'
-# page_content = get_image_description(
-#     'figures/figure-1-2.jpg', a, b)
+# a = 'Key Figures'
+# b = """"""
+# # page_content = get_image_description(
+# #     'figures/figure-1-2.jpg', a, b)
 
-# print(page_content)
-# print(custom_parser.parse_paragraph(page_content))
-p = """
-The sales distribution presented in the Interim Management Report is as follows: Germany accounts for 15.6% (previously 17.6%), the Rest of Asia constitutes 18.6% (from 16.0%), France represents 6.6% (down from 9.5%), and the Republic of Korea contributes 12.5% (up from 9.9%). The USA makes up 20.1% of sales (compared to 19.5% previously), with the USA Production specifically contributing 6.6% (previously 6.1%). The Rest of Europe accounts for 16.7% of sales (compared to 17.1% previously), and All Others comprise 3.3% (down from 4.3%). The central figure is 453.9 million euros, slightly down from the previous 467.3 million euros.
-"""
-print(get_paragraph_description(p))
+# # print(page_content)
+# # print(custom_parser.parse_paragraph(page_content))
+
+# table = """
+# <table><thead><th></th><th></th><th>Q3 2020</th><th>Q3 2019</th><th>Change</th><th>2020</th><th>2019</th><th>Change</th></thead><tr><td colspan="8">Sales and profit</td></tr><tr><td>Total sales</td><td>K€</td><td>152,007</td><td>156,225</td><td>-2.7%</td><td>453,861</td><td>467,330</td><td>-2.9%</td></tr><tr><td>Germany</td><td>K€</td><td>24,196</td><td>25,056</td><td>-3.4%</td><td>70,565</td><td>72,664</td><td>-2.9%</td></tr><tr><td>Other countries</td><td>K€</td><td>127,811</td><td>131,169</td><td>-2.6%</td><td>383,296</td><td>394,669</td><td>-2.9%</td></tr><tr><td>Operating profit</td><td>K€</td><td>16,138</td><td>16,059</td><td>0.5%</td><td>35,686</td><td>48,904</td><td>-27.0%</td></tr><tr><td>EBIT margin</td><td>%</td><td>10.6</td><td>10.3</td><td>0.3 Pp</td><td>7.9</td><td>10.5</td><td>-2.6 Pp</td></tr><tr><td>Net income</td><td>K€</td><td>11,279</td><td>11,427</td><td>-1.3%</td><td>24,810</td><td>34,736</td><td>-28.6%</td></tr><tr><td>Return on sales</td><td>%</td><td>7.4</td><td>7.3</td><td>0.1 Pp</td><td>5.5</td><td>7.4</td><td>-1.9 Pp</td></tr><tr><td>Operating cash flow</td><td>K€</td><td>14,070</td><td>12,471</td><td>12.8%</td><td>36,957</td><td>35,513</td><td>4.1%</td></tr><tr><td>Capital expenditures</td><td>K€</td><td>6,403</td><td>6,273</td><td>2.1%</td><td>19,675</td><td>19,307</td><td>1.9%</td></tr><tr><td>Earnings per share</td><td>€</td><td>1.14</td><td>1.16</td><td>-1.7%</td><td>2.51</td><td>3.52</td><td>-28.4%</td></tr><tr><td colspan="8">Workforce</td></tr><tr><td>Workforce (average)</td><td></td><td>3,334</td><td>3,243</td><td>2.8%</td><td>3,317</td><td>3,244</td><td>2.3%</td></tr><tr><td>Germany</td><td></td><td>1,124</td><td>1,092</td><td>2.9%</td><td>1,119</td><td>1,072</td><td>44%</td></tr><tr><td>Other countries</td><td></td><td>2,210</td><td>2,152</td><td>2.7%</td><td>2,198</td><td>2,172</td><td>1.2%</td></tr><tr><td rowspan="2">Sales per employee</td><td>K€</td><td>46</td><td>48</td><td>-4.8%</td><td>137</td><td>144</td><td>-5.5%</td></tr><tr><td></td><td></td><td></td><td></td><td>Sept. 30, 2020</td><td colspan="2" rowspan="2">December 31, 2019</td><td>Change</td></tr><tr><td colspan="8">Balance sheet</td><td colspan="2" rowspan="2">659,575</td><td colspan="2"></td></tr><tr><td>Balance sheet total</td><td></td><td></td><td>K€</td><td>659,111</td><td colspan="2"></td><td>-0.1%</td></tr><tr><td colspan="3">Cash and cash equivalents</td><td>K€</td><td>112,217</td><td colspan="2">111,980</td><td>0.2%</td></tr><tr><td colspan="2">Number of shares issued</td><td></td><td colspan="2">9,867,659</td><td colspan="2">9,867,659</td><td>-</td></tr><tr><td>Shareholders' equity</td><td></td><td></td><td colspan="2">K€ 396,377</td><td colspan="2">393,445</td><td>-0.9%</td></tr></table>
+# """
+
+# print(get_table_description(table, {}, a, b))
+
+# p = """
+# Interim Management Report:
+# The following graphic shows the still balanced split of sales by region.
+# """
+# get_paragraph_description(p, {}, False)

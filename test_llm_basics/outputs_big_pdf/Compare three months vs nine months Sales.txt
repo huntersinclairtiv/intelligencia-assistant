@@ -1,0 +1,15 @@
+To compare the three months versus nine months sales, we will look at the differences in sales for the same categories across the two different time periods provided in the table.
+
+For the category "Semiconductors + Coating":
+- In the three months ended September 30, 2020, sales were 75,022K€.
+- In the nine months ended September 30, 2020, sales were 233,500K€.
+
+For the category "Industry + Analytics + R & D":
+- In the three months ended September 30, 2020, sales were 76,985K€.
+- In the nine months ended September 30, 2020, sales were 220,361K€.
+
+For the total sales across all categories:
+- In the three months ended September 30, 2020, total sales were 152,007K€.
+- In the nine months ended September 30, 2020, total sales were 453,861K€.
+
+From this, we can observe that for both individual categories and the total sales, the nine-month period has significantly higher sales figures compared to the three-month period. This is expected as the nine-month period covers a longer time frame, resulting in more accumulated sales. Specifically, the nine-month sales figures are more than three times the three-month sales figures for both categories and the total, which would make sense if the sales remained relatively consistent month to month.

@@ -22,7 +22,7 @@ from langchain.storage import InMemoryStore
 from langchain.text_splitter import *
 from langchain.vectorstores.faiss import FAISS
 from langchain.docstore.document import Document
-from langchain.document_loaders import UnstructuredFileLoader
+from langchain.document_loaders import UnstructuredFileLoader, UnstructuredURLLoader
 import tensorflow as tf
 import numpy as nf
 import tensorflow_hub as hub
@@ -62,7 +62,7 @@ llm = ChatOpenAI(max_retries=3, model=llm_model_type)
 embeddings = CustomEmbeddings()
 faiss_embeddings = custom_embeddings.CustomFaissEmbeddings()
 company_handbook_faiss_path = "./faiss_company_handbook"
-store = custom_supabase.SupabaseDocstore('ev_doc_store')
+store = custom_supabase.SupabaseDocstore('temp_documents')
 
 
 # Specify the path to your image file
@@ -77,17 +77,46 @@ store = custom_supabase.SupabaseDocstore('ev_doc_store')
 # faiss = FAISS.from_embeddings(text_embedding_pairs, embeddings)
 
 
-def get_supabase_vectorstore(docs, table_name='documents'):
+def create_persistent_local_doc_store(store_location='./store_location'):
+    fs = LocalFileStore(store_location)
+    store = create_kv_docstore(fs)
+    return store
+
+
+def create_local_doc_store():
+    return InMemoryStore()
+
+
+def create_supabase_vectorstore(docs, use_local_embedding=False, table_name='temp_embeddings'):
+    """
+    Creates a vectorstore on supabase with <docs> using the <table_name> table 
+    """
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
     supabase: Client = create_client(supabase_url, supabase_key)
+    embeddings = custom_embeddings.CustomSupabaseEmbeddings() if use_local_embedding else OpenAIEmbeddings()
     vectorstore = SupabaseVectorStore.from_documents(
         docs,
-        custom_embeddings.CustomSupabaseEmbeddings(),
+        embeddings,
         client=supabase,
         table_name=table_name
     )
     return vectorstore
+
+
+def get_supabase_vectorstore(table_name='temp_embeddings'):
+    """
+    Returns a supabase vector store instance 
+    """
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+    supabase: Client = create_client(supabase_url, supabase_key)
+    return SupabaseVectorStore(
+        embedding=custom_embeddings.CustomSupabaseEmbeddings(),
+        client=supabase,
+        table_name=table_name,
+        query_name='match_documents_2'
+    )
 
 
 def initialize_vectorstore(input, supabase):
@@ -103,7 +132,7 @@ def initialize_vectorstore(input, supabase):
         for text in texts:
             print(text)
     if supabase:
-        vectorstore = get_supabase_vectorstore(texts)
+        vectorstore = create_supabase_vectorstore(texts)
     else:
         vectorstore = FAISS.from_documents(texts, embeddings)
     print("Vectorstore created.")
@@ -214,11 +243,10 @@ def process_extracted_files(image_path_list):
         last_title = metadata['last_title']
         image_path = metadata['image_path']
         last_narrative_text = metadata['last_narrative_text']
-        metadata = {}
-        print("TITLE AND TEXT--> ", last_title, last_narrative_text)
+        # print("TITLE AND TEXT--> ", last_title, last_narrative_text)
         page_content = open_ai_integration.get_image_description(
             image_path, last_title, last_narrative_text)
-        print("RESPONSE for --> ", image_path, page_content)
+        # print("RESPONSE for --> ", image_path, page_content)
         # CHECK FOR A VALID RESPONSE
         if page_content not in ['UNEXTRACTABLE_DATA', 'UNPROCESSABLE_ENTITY']:
             image_id = str(uuid.uuid4())
@@ -229,12 +257,9 @@ def process_extracted_files(image_path_list):
             child_doc_list.extend(
                 custom_text_parser.parse_paragraph(page_content, metadata))
             child_doc_list.extend(
-                open_ai_integration.get_paragraph_description(page_content))
+                open_ai_integration.get_paragraph_description(page_content, metadata))
     return (parent_doc_list, child_doc_list)
 
-
-# a, b = process_extracted_files()
-# print(a, b)
 
 def rectangle_area(coordinates):
     (x1, y1), (x2, y2), (x3, y3), (x4, y4) = coordinates
@@ -258,22 +283,33 @@ def is_intersecting(rect1, rect2):
     return True
 
 
+def is_overlapping(parent, child):
+    l1, _, r1, _ = parent
+    l2, _, r2, _ = child
+    x1, y1 = l1
+    x2, y2 = r1
+    x3, y3 = l2
+    x4, y4 = r2
+    if x1 <= x3 and y1 <= y3 and x2 >= x4 and y2 >= y4:
+        return True
+    return False
+
+
 def compare(item1, item2):
     cord_1, _, _, _ = item1
     cord_2, _, _, _ = item2
     x1, y1 = cord_1
     x2, y2 = cord_2
-    if x1 < x2 and y1 < y2:
-        return -1
-    elif x1 == x2 and y1 == y2:
+    if x1 == x2 and y1 == y2:
         a1 = rectangle_area(item1)
         a2 = rectangle_area(item2)
-        if a1 > a2:
-            return -1
-        else:
-            return 1
-    elif x1 < x2 or y1 < y2:
-        return 0
+        return a2-a1
+        # if a1 > a2:
+        #     return -1
+        # else:
+        #     return 1
+    elif (x1 <= x2 and y1 <= y2):
+        return -1
     else:
         return 1
 
@@ -284,16 +320,27 @@ def process_image_overlaps(cor_list, image_path_mapping):
     final_images_cords = {}
 
     for x in cor_list:
+        def f(x):
+            (x1, y1), _, (x2, y2), _ = x
+            return f'{x1}_{y1}_{x2}_{y2}'
         (x1, y1), _, _, _ = x
+        # print("PROCESSING IMAGES --> ", image_path_mapping[f(x)]['image_path'])
+        # print("AREA--> ", rectangle_area(x), "CORDS--> ", x)
         key = f'{x1}_{y1}'
         new_rect = True
+        curr_page = image_path_mapping[f(x)]['page_number']
         for existing_rectangle in final_images_cords.values():
-            if is_intersecting(existing_rectangle, x):
+            tmp_page = image_path_mapping[f(existing_rectangle)]['page_number']
+            # if curr_page == tmp_page and is_intersecting(existing_rectangle, x):
+            if curr_page == tmp_page and is_overlapping(existing_rectangle, x):
                 new_rect = False
+                # print('FAILED--> ', f(existing_rectangle), f(x))
                 break
         if new_rect:
             final_images_cords[key] = x
     final_image_path_list = []
+    # the number of final images in a doc will be handful so this loop should not be much work
+    # shall look in future on improvising this
     for final in final_images_cords.values():
         (x1, y1), _, (x2, y2), _ = final
         final_image_path_list.append(
@@ -302,7 +349,7 @@ def process_image_overlaps(cor_list, image_path_mapping):
     return final_image_path_list
 
 
-def create_parent_child_vectstore(file_path):
+def create_parent_child_vectstore(file_path, use_local_vectorstore=False, use_local_embeddings=False):
     doc = UnstructuredFileLoader(
         file_path=file_path,
         strategy='hi_res',
@@ -384,14 +431,16 @@ def create_parent_child_vectstore(file_path):
 
             # list of documents with summarised paragraph and questions if the size is greater than 300
             add_summary = len(page_content) > 300
-            child_document_list.extend(
-                open_ai_integration.get_paragraph_description(page_content, d.metadata, add_summary))
+            if add_summary:
+                child_document_list.extend(
+                    open_ai_integration.get_paragraph_description(page_content, d.metadata, add_summary))
 
     if len(curr_chunk) > 0:
         larger_document_list.append((doc_id,
                                      Document(page_content=f'{last_title}\n{curr_chunk}', metadata={'id': doc_id})))
-        child_document_list.extend(
-            open_ai_integration.get_paragraph_description(curr_chunk, d.metadata, len(curr_chunk) > 300))
+        if len(curr_chunk) > 300:  # temporarily do not summarise small paragraphs
+            child_document_list.extend(
+                open_ai_integration.get_paragraph_description(curr_chunk, d.metadata, len(curr_chunk) > 300))
 
         # child_document_list.extend(custom_text_parser.parse_paragraph(
         #     d.page_content, d.metadata, last_title))
@@ -406,20 +455,27 @@ def create_parent_child_vectstore(file_path):
         child_document_list.extend(b)
         larger_document_list.extend(a)
     # # TODO: improve this to pass in parent document
+
+    # Writes down all the chunks into child_list.txt file
     with open('child_list.txt', 'w') as f:
         for d in child_document_list:
             f.write(f'{d.page_content}\n\n')
 
-    vectorstore = FAISS.from_documents(
-        documents=child_document_list, embedding=embeddings)
+    vectorstore = None
+    if use_local_vectorstore:
+        vectorstore = FAISS.from_documents(
+            documents=child_document_list, embedding=embeddings)
+        merge_with_old_vectorstore(vectorstore)
+    else:
+        vectorstore = create_supabase_vectorstore(
+            child_document_list, use_local_embeddings)
 
-    merge_with_old_vectorstore(vectorstore)
     store.mset(larger_document_list)
-
+    return vectorstore
     # CODE ENDS
 
 
-def create_and_merge(path):
+def create_and_merge(path, mode='single'):
     """
     creates a vector store and merges it with existing vector store
     """
@@ -433,6 +489,7 @@ def create_and_merge(path):
     document = UnstructuredFileLoader(
         file_path=path,
         strategy='hi_res',
+        mode=mode,
         skip_infer_table_types=[],
         pdf_infer_table_structure=True,
         pdf_extract_images=True
@@ -444,126 +501,12 @@ def create_and_merge(path):
 
 def upload_files():
 
-    new_vectorstore = None
-    # new_vectorstore = create_and_merge('test_docs/Student details large.docx')
-    # print(new_vectorstore.as_retriever().get_relevant_documents(
-    #     query="What are marks for Ekansh Verma?",))
-    # table_name = 'documents'
-    # supabase_url = os.environ.get("SUPABASE_URL")
-    # supabase_key = os.environ.get("SUPABASE_KEY")
-    # supabase: Client = create_client(supabase_url, supabase_key)
-    # new_vectorstore = SupabaseVectorStore(
-    #     embedding=embeddings,
-    #     client=supabase,
-    #     table_name=table_name
-    # )
-    # print(new_vectorstore.as_retriever().get_relevant_documents(
-    #     "What are the marks for Ekansh?"))
-
-    # store = InMemoryStore()
-
-    # fs = LocalFileStore("./new_store_location")
-    # store = create_kv_docstore(fs)
-
-    # fs = LocalFileStore("./store_location")
-    # store = create_kv_docstore(fs)
-    # new_vectorstore = create_and_merge(
-    #     'test_docs/Box Cricket Rules (JPL 2023).docx')
-    # new_vectorstore = FAISS.load_local(company_handbook_faiss_path, embeddings)
-    # retriever = ParentDocumentRetriever(
-    #     vectorstore=new_vectorstore,
-    #     docstore=store,
-    #     child_splitter=RecursiveCharacterTextSplitter(
-    #         chunk_size=100, chunk_overlap=20),
-    #     parent_splitter=RecursiveCharacterTextSplitter(
-    #         chunk_size=4000, chunk_overlap=200)
-    # )
-    # path = 'test_docs/PFV0920_E-(1).pdf'
-    # # # print("ONE")
-    # documents = UnstructuredFileLoader(
-    #     file_path=path,
-    #     strategy='hi_res',
-    #     mode='paged',
-    #     skip_infer_table_types=[],
-    #     pdf_infer_table_structure=True,
-    #     pdf_extract_images=True
-    # ).load()
-    # for doc in documents:
-    #     if doc text_as_html
-    # img_url = 'https://ev-test-public-images.s3.us-east-1.amazonaws.com/figures/figure-8-3.jpg?response-content-disposition=inline&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEN3%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmFwLXNvdXRoLTEiSDBGAiEAs6fExbtbmzP8qvvKad5KBTAGp8zRWkatDF5OKQVqERkCIQDiXpJGcJNWHALKoVkUBsB1zkHWdBLdVYtO0M6D34bNxSrkAgh2EAAaDDg3MjI1MzA4MzEyMSIMNk4%2BJ6HUaqTqylcLKsEC7v3XWixshQNXNaEEJ8StiPCTat1LT6EixZRHWx0EmgMcZ4NliM0PtYOB%2B1l3fONwn5vGW5bQeSQRa9KsVKi6rSDIZXkxtlFFQGcWiaNSHjITx26IS95HmGP7v4nk7%2FBZ%2BgGdc5zlMc1nrerQGu1Y2LhV51DhOo1eiFb2bcY89gZLZ%2BI4RPGahIA%2FJy9hkNB0bBWr0%2BJZstJZjgpuPE2B7MhuiMjULWkihDL69cpDZvefMbPbT26Fekx4oB9QMh4e0Xa4gADOLysdy7ex7C1JZP%2Fh4p%2BxpIG7NsxXG1q%2B0zgXYWhUXIlaKsluj%2BC%2BQnopqkR9OcMZLPvr8C1s3ws7QPkSWjPMv2CHZuRkU7gL74xE6MBHMs4NasGWZDfssTZpoZR%2Fj1wC0dAOLZxFqbLIBEwR%2BTxKAbaBa4S%2B77N9HZP9MJat2awGOrICX4x4QCUhM6ORwcqJklHW5%2BWN0xs1gV9So9dFILIOsLOjIQ5stZFiFkyRTEgoc54skFfCWpaONgB%2B5vvMNI6XpT0XGJC9KH6GBGd3o1tuMNUHbwiHRHPIoLZfy28g7GwB0llW7eKjABKq1d2ILvjJU1f2AX3gi9wOMZt8%2B%2FBv5uZz9J9pzgCvWXwq8E%2BRAtFxjDLHZITj3InZFntFiME3VRwI7W39jx84qKr5YfWJHIT4fr062%2FOQ8HVqIb20wHZzU%2BVLoWQrkzeQ8VOOLC9bHLzDPxpZ3TEvhL9sqVK9H0WwZzn0H06ikO0FH%2Brqmmfnw1P83nnv9P%2F0t4XZ9lazDA0WVIrXhAQzCGYLMFYewfUbbmD9r0ImaOuNHXPVUdIDG1Cabrqm2aVjTUBgSUzQKUe8&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20240104T134409Z&X-Amz-SignedHeaders=host&X-Amz-Expires=300&X-Amz-Credential=ASIA4WFSVZXYQ2GZDYHX%2F20240104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=b65d356c2ca61261c951bc51fd3d1e3db9bdaf4a02f129dd7e933d8adca9f34b'
-    # image_description = open_ai_integration.get_image_description(img_url)
-    # print(image_description)
-    # new_vectorstore = initialize_vectorstore(
-    #     [Document(page_content=image_description)], False)
-    # merge_with_old_vectorstore(new_vectorstore)
-    # print(doc)
-
-    # CODE STARTS
-    # doc = UnstructuredFileLoader(
-    #     file_path='test_docs/Sample_Report.pdf',
-    #     strategy='hi_res',
-    #     mode='elements',
-    #     skip_infer_table_types=[],
-    #     pdf_infer_table_structure=True,
-    #     pdf_extract_images=True,
-    #     chunking_strategy='by-title'
-    # ).load()
-    # #  (1453.333378333333, 624.9998930555553), (1453.333378333333, 528.6665649999997)), ((391.3333044444444, 541.9998644444443), (391.3333044444444, 629.9998572222222), (606.3332858333333, 629.9998572222222), (606.3332858333333, 541.9998644444443)), ((820.9999933333332, 592.9999933333335), (820.9999933333332, 653.666655), (1050.3333077777777, 653.666655), (1050.3333077777777, 592.9999933333335)), ((1227.3332383333334, 684.3333399999996), (1227.3332383333334, 772.3333327777775), (1455.9998863888889, 772.3333327777775), (1455.9998863888889, 684.3333399999996))]
-
-    # last_title = None
-    # last_narrative_text = None
-    # for index, d in enumerate(doc):
-    #     # dict[d.metadata['category']] = 1
-    #     if d.metadata['category'] == 'Title':
-    #         last_title = d.page_content
-    #     if d.metadata['category'] in ['Text', 'NarrativeText', 'BulletedText']:
-    #         last_narrative_text = d.page_content
-    #     if d.metadata['category'] == 'Image':
-    #         # if index-1 >= 0:
-    #         #     print('last---> ', doc[index-1].page_content)
-    #         # print('path--> ', d.metadata['image_path'],
-    #         #       d.metadata['coordinates']['points'])
-    #         image_path = d.metadata.get('image_path')
-    #         cor_list.append(d.metadata['coordinates']['points'])
-    #         (x1, y1), _, (x2, y2), _ = d.metadata['coordinates']['points']
-    #         d.metadata['last_title'] = last_title
-    #         d.metadata['last_narrative_text'] = last_narrative_text
-    #         image_path_mapping[f'{x1}_{y1}_{x2}_{y2}'] = d.metadata
-    # final_image_path_list = process_image_overlaps(
-    #     cor_list, image_path_mapping)
-    # print(final_image_path_list)
-    # print(key['image_path'] for key in final_image_path_list)
-
-    # x = [{'source': 'test_docs/Test_1.pdf', 'coordinates': {'points': ((364.99998305555556, 385.66661944444434), (364.99998305555556, 431.6666155555554), (1470.3332258333335, 431.6666155555554), (1470.3332258333335, 385.66661944444434)), 'system': 'PixelSpace', 'layout_width': 1654, 'layout_height': 2339}, 'last_modified': '2024-01-08T14:03:57', 'filetype': 'application/pdf', 'image_path': '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-1-1.jpg', 'languages': ['eng'], 'page_number': 1, 'file_directory': 'test_docs', 'filename': 'Test_1.pdf', 'category': 'Image', 'last_title': 'Interim Management Report', 'last_narrative_text': 'The following graphic shows the still balanced split of sales by region.'}, {
-    #     'source': 'test_docs/Test_1.pdf', 'detection_class_prob': 0.881764829158783, 'coordinates': {'points': ((385.8384704589844, 446.7426666666663), (385.8384704589844, 816.81396484375), (1444.3333333333335, 816.81396484375), (1444.3333333333335, 446.7426666666663)), 'system': 'PixelSpace', 'layout_width': 1654, 'layout_height': 2339}, 'last_modified': '2024-01-08T14:03:57', 'filetype': 'application/pdf', 'image_path': '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-1-2.jpg', 'languages': ['eng'], 'page_number': 1, 'file_directory': 'test_docs', 'filename': 'Test_1.pdf', 'category': 'Image', 'last_title': 'Interim Management Report', 'last_narrative_text': 'The following graphic shows the still balanced split of sales by region.'}]
-    # a, b = process_extracted_files(x)
-    # print("PARENT--> ", a)
-    # print("CHILD--> ", b)
-    # if index+1 < len(doc):
-    #     print('next--> ', doc[index+1].page_content)
-    # # # # print(dict.keys())
-    # print()
-
-    # def overlap(l1,r1,l2,r2):
-    #     if l1.x > r2.x or l2.x > r1.x:
-    #         return False
-    #     if r1.y > l2.y or r2.y > l1.y :
-    #         return False
-    #     return True
-
-    # x1=y1=x2=y2 =0
-    # for a,b,c,d in cor_list:
-
-    # count_f = 1
-    # for x, y in larger_document_list:
-    #     with open(f'chunking/{count_f}.txt', 'w') as f:
-    #         f.write(y.page_content)
-    # print(vectorstore.as_retriever().get_relevant_documents(
-    #     'How was the share performance?'))
-    # parent_child_mapping = {}
-    file_path = 'test_docs/Test_1.pdf'
-    create_parent_child_vectstore(file_path)
-    vectorstore = FAISS.load_local('./faiss_company_handbook', embeddings)
+    # new_vectorstore = None
+    file_path = 'test_docs/Test_1.pdf'  # single page pdf
+    # file_path = 'test_docs/Sample_Report.pdf'  # 5 page pdf
+    # vectorstore = FAISS.load_local('./faiss_company_handbook', embeddings)
+    # vectorstore = create_parent_child_vectstore(file_path)
+    vectorstore = get_supabase_vectorstore()
     retriever = ParentDocumentRetriever(
         vectorstore=vectorstore,
         docstore=store,
@@ -572,7 +515,61 @@ def upload_files():
         parent_splitter=RecursiveCharacterTextSplitter(
             chunk_size=4000, chunk_overlap=200)
     )
-    # custom returing the doc list
+    ask_questions(retriever)
+
+    # TEST_CODE
+
+    # doc = UnstructuredFileLoader(
+    #     file_path='test_docs/flyer.pdf',
+    #     strategy='hi_res',
+    #     mode='elements',
+    #     skip_infer_table_types=[],
+    #     pdf_infer_table_structure=True,
+    #     pdf_extract_images=True,
+    #     chunking_strategy='by-title'
+    # ).load()
+    # cor_list = []
+    # image_path_mapping = {}
+    # SUB_TEXT_LIST = ['Text', 'NarrativeText', 'BulletedText']
+    # child_document_list = []
+    # larger_document_list = []
+    # final_image_path_list = []
+    # last_title = None
+    # last_narrative_text = None
+    # curr_chunk = ""
+    # doc_id = str(uuid.uuid4())
+    # for d in doc:
+    #     page_content = d.page_content
+    #     category = d.metadata['category']
+    #     d.metadata['id'] = doc_id
+    #     table_details = d.metadata.get('text_as_html')
+    #     # NARRATIVE TEXT HAS TO be one of text, narrative_text, BulletedText
+    #     if category in SUB_TEXT_LIST:
+    #         last_narrative_text = page_content
+    #     # SKIP INFERING PAGE NUMBERS
+    #     if page_content.isdigit():
+    #         continue
+    #     # PROCESSING BEGINS
+
+    #     # PROCESSING TITLE
+    #     if d.metadata.get('category') == 'Title':
+    #         last_title = f'{d.page_content}: \n'
+    #     # PROCESSING IMAGE
+    #     elif category == 'Image':
+    #         # print(d.metadata)
+    #         # break
+    #         image_path = d.metadata.get('image_path')
+    #         cor_list.append(d.metadata['coordinates']['points'])
+    #         (x1, y1), _, (x2, y2), _ = d.metadata['coordinates']['points']
+    #         d.metadata['last_title'] = last_title
+    #         d.metadata['last_narrative_text'] = last_narrative_text
+    #         image_path_mapping[f'{x1}_{y1}_{x2}_{y2}'] = d.metadata
+
+    # print(len(cor_list))
+
+    # final_image_path_list = process_image_overlaps(
+    #     cor_list, image_path_mapping)
+    # print([item['image_path'] for item in final_image_path_list])
 
     # doc = retriever.add_documents(doc, ids=None)
     # for d in doc:
@@ -603,8 +600,6 @@ def upload_files():
     # a, b = retriever.get_relevant_documents(query="Hello")
     # print("RES", b)
 
-    ask_questions(retriever)
-
 
 def ask_questions(vector_store):
     """
@@ -625,19 +620,21 @@ def ask_questions(vector_store):
     annual_pdf_questions = [
         # "what were the sales by end of September 30?",
         # "Why did the sales decline compared to previous year?",
-        # "What was the average workforce in Germany for quater Q3 of the year 2020?",
         # "What are the stats for the Number of shares issued?",
         # "How was the share performance in the first three quaters?",
+        # "What was the average workforce in Germany for quater Q3 of the year 2020?",
         # "What was the total amount paid to shareholders?"
         # "Compare Business VS Sales",
         # "Contribution of Europe and France in total sales?"
         # "Contribution of Sales by France?"
-        "Describe Sales by Region"
+        # "Describe Sales by Region",
+        # "Describe Sales across world"
+
 
         # SINGLE PAGE QUES
         # "what were sales by product?"
-        # "Compare three months vs nine months Sales"
-        # "What were the total sales in 2020?",
+        "Compare three months vs nine months Sales",
+        "What were the total sales in 2020?",
         # "What were the reasons for fall of sales?",
         # "Describe sales distribution by region", # could not be answered, this needs to be better retrieved?
         # "What were the sales in Europe?",
@@ -653,25 +650,25 @@ def ask_questions(vector_store):
     final_list.extend(annual_pdf_questions)
     print(final_list)
     for ques in final_list:
-        # qa = RetrievalQA.from_llm(
-        #     llm=llm, retriever=vector_store, return_source_documents=True)
-        # with get_openai_callback() as cb:
-        #     result = qa({"query": ques})
-        #     # print(result)
-        #     with open(f'outputs_big_pdf/{ques}.txt', 'w') as f:
-        #         f.write(result['result'])
-        #     print("answered ", ques)
+        qa = RetrievalQA.from_llm(
+            llm=llm, retriever=vector_store, return_source_documents=True)
+        with get_openai_callback() as cb:
+            result = qa({"query": ques})
+            # print(result)
+            with open(f'outputs_big_pdf/{ques}.txt', 'w') as f:
+                f.write(result['result'])
+            print("answered ", ques)
 
-        answers = vector_store.get_relevant_documents(
-            query=ques, k=4)
-        with open(f'outputs/{ques}.txt', 'w') as f:
-            f.write(f"Answer for {ques} is \n")
-            d = 1
-            for answer in answers:
-                f.write(f"Response number: {d}")
-                d += 1
-                f.write(f"\n {answer.page_content} \n")
-        print("answered ", ques)
+        # answers = vector_store.get_relevant_documents(
+        #     query=ques, k=4)
+        # with open(f'outputs/{ques}.txt', 'w') as f:
+        #     f.write(f"Answer for {ques} is \n")
+        #     d = 1
+        #     for answer in answers:
+        #         f.write(f"Response number: {d}")
+        #         d += 1
+        #         f.write(f"\n {answer.page_content} \n")
+        # print("answered ", ques)
     # qa = RetrievalQA.from_llm(
     #     llm=llm, retriever=vector_store.as_retriever(), return_source_documents=True)
 

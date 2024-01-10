@@ -1,0 +1,12 @@
+The sales distribution for the company across the world can be summarized as follows:
+
+- France contributed 6.6% of the sales, a decrease from the previous 9.5%.
+- Germany accounted for 15.6% of sales, down from the previous 17.6%.
+- The "All Others" category made up 3.3% of sales, falling from 4.3% previously.
+- The "Rest of Asia" region was responsible for 18.6% of sales, an increase from 16.0%.
+- "Rest of Europe" contributed 16.7%, slightly down from the previous 17.1%.
+- The USA represented 20.1% of sales, which is up from 19.5%.
+- USA (Production) accounted for 6.6%, an increase from 6.1%.
+- The Republic of Korea made up 12.5% of sales, up from the previous 9.9%.
+
+The total consolidated sales amounted to 453.9 million euros, a decrease from the previous 467.3 million euros. The sales figures indicate a balanced split by segments with significant contributions from both European and Asian markets.

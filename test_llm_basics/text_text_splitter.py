@@ -1,3 +1,4 @@
+import os
 from langchain.text_splitter import NLTKTextSplitter
 from langchain.docstore.document import Document
 
@@ -33,7 +34,14 @@ COVID-19 situation the sales with customers from analytics, industry and R&D
 declined compared to previous year
 """
 
-docs = Document(page_content=p)
-splitter = NLTKTextSplitter(chunk_size=300, chunk_overlap=150)
-for text in splitter.split_text(p):
-    print("NEW--> ", text)
+# docs = Document(page_content=p)
+# splitter = NLTKTextSplitter(chunk_size=300, chunk_overlap=150)
+# for text in splitter.split_text(p):
+#     print("NEW--> ", text)
+
+
+x = ['/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-4-1.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-1-1.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-2-1.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-2-2.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-1.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-2.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-4.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-5.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-7.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-2-3.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-3.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-6.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-8.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-3-11.jpg', '/home/jtg-d305/Desktop/openAI/intelligencia-assistant/test_llm_basics/figures/figure-4-2.jpg']\
+
+print(len(x))
+for xx in x:
+    print(os.path.basename(xx))

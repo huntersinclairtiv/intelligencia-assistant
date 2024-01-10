@@ -1,9 +1,1 @@
-The sales decline compared to the previous year can be attributed to several factors as indicated in the contexts provided:
-
-1. The impact of COVID-19: The pandemic has had a significant impact on businesses worldwide, and this is reflected in the sales decrease, especially in Europe where it was mentioned that the semiconductor business couldn't counteract the impact of the pandemic.
-
-2. Regional disparities: The sales performance varied by region. While Asia experienced growth, primarily due to the development of semiconductor customers, other regions did not fare as well. The biggest drop in sales was recorded in France, although specific reasons for this drop were not provided in the provided context.
-
-3. Market segment performance: There was a heterogeneous development in sales by segment. The Republic of Korea and the rest of Asia saw increases, whereas other segments, including the USA and USA (Production), remained similar to 2019, and other segments declined.
-
-It's important to note that specific details on the reasons for the decline in each segment or region beyond what has been mentioned may require additional context that is not provided here.
+The sales decline compared to the previous year was primarily attributed to the impact of COVID-19, particularly in Europe, where the semiconductor business was unable to offset the negative effects of the pandemic. This led to a decrease in sales for Europe by 6.6%. The overall decline in sales was also reflected in the lower sales figures for some countries; France's contribution decreased from 9.5% to 6.6%, Germany's from 17.6% to 15.6%, and the category labeled as All Others from 4.3% to 3.3%. Despite the growth in the Asian region, particularly due to the development of semiconductor-customers, the negative impacts in other regions led to a total consolidated sales reduction to 453.9 million euros from the previous 467.3 million euros.

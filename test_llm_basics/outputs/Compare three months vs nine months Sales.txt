@@ -1,7 +1,0 @@
-Answer for Compare three months vs nine months Sales is 
-Response number: 1
- <table><thead><th></th><th colspan="2">Three months ended September 30,</th><th colspan="2">Nine months ended September 30,</th></thead><thead><th></th><th>2020</th><th>2019</th><th>2020</th><th>2019</th></thead><tr><td></td><td>in K€</td><td>in K€</td><td>in K€</td><td>in K€</td></tr><tr><td>Semiconductors + Coating</td><td>75,022</td><td>70,729</td><td>233,500</td><td>218,047</td></tr><tr><td>Industry + Analytics + R &amp; D</td><td>76,985</td><td>85,496</td><td>220,361</td><td>249,286</td></tr><tr><td>Total</td><td>152,007</td><td>156,225</td><td>453,861</td><td>467,333</td></tr></table> 
-Response number: 2
- Sales by Market: 
-
-As mentioned before sales in the market semiconductors showed a positive trend and therefore influenced the development in the category semiconductors and coating. In contrast the demand in the coating market stayed quite challenging. Due to the COVID-19 situation the sales with customers from analytics, industry and R&D declined compared to previous year.For competitive reasons we decided to carry out our sales analysis by market on a more consolidated level from financial year 2020 on. The previous year’s figures have been adjusted accordingly. For the same reason, we refrain from disclosing sales by product. 

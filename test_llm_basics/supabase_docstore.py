@@ -13,6 +13,9 @@ from langchain_core.stores import BaseStore
 
 
 class SupabaseDocstore(BaseStore):
+    """
+    class for handling docstore operations on supabase
+    """
 
     def __init__(self, table_name) -> None:
         load_dotenv()
@@ -29,6 +32,7 @@ class SupabaseDocstore(BaseStore):
         return store
 
     def mget(self, keys: Sequence[str]):
+        # TODO: Add where clause with 'id IN (<id_list>)'.
         response = self.supabase.table(self.table_name).select("*").execute()
         doc_store = self.format_response(response.data)
         return [doc_store.get(key) for key in keys]
@@ -36,11 +40,13 @@ class SupabaseDocstore(BaseStore):
     def mset(self, key_value_pairs) -> None:
         doc_list = []
         for key, value in key_value_pairs:
-            doc_list.append({'id': key, 'content': value.page_content, 'metadata': value.metadata})
+            doc_list.append(
+                {'id': key, 'content': value.page_content, 'metadata': value.metadata})
         self.supabase.table(self.table_name).upsert(doc_list).execute()
 
     def mdelete(self, keys: Sequence[str]) -> None:
-        self.supabase.table(self.table_name).select('*').in_('id', keys).execute()
+        self.supabase.table(self.table_name).select(
+            '*').in_('id', keys).execute()
 
     def yield_keys(self, prefix: Optional[str] = None) -> Iterator[str]:
         response = self.supabase.table(self.table_name).select("*").execute()

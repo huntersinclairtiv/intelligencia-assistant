@@ -2,10 +2,7 @@ import os
 import openai
 import random
 
-# Initialize OpenAI API
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Alternative: Use environment variable
-if openai.api_key is None:
-    raise Exception("No OpenAI API key found. Please set it as an environment variable or in main.py")
+# CODE CURRENTLY NOT IN USE
 
 # Function to generate queries using OpenAI's ChatGPT
 def generate_queries_chatgpt(original_query):

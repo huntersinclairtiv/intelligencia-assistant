@@ -1,7 +1,0 @@
-To compare the three-month and nine-month sales for 2020, we can look at the "Total" row in the provided table.
-
-For the three months ended September 30, 2020, the total sales were 152,007 in K€ (thousand euros).
-
-For the nine months ended September 30, 2020, the total sales were 453,861 in K€ (thousand euros).
-
-To find the total sales for the entire year of 2020, we would need additional data for the remaining three months (October, November, and December). However, this information is not provided in the context, so we cannot determine the total sales for the full year of 2020.

@@ -80,7 +80,7 @@ Pillow==9.5.0
 pkginfo==1.9.6
 postgrest==0.10.8
 protobuf==4.24.3
-psycopg2==2.9.7
+psycopg2-binary==2.9.7
 pyarrow==13.0.0
 pyasn1==0.4.8
 pyasn1-modules==0.2.8

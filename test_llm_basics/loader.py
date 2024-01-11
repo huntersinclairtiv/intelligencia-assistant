@@ -1,3 +1,4 @@
+import fitz  # pip install PyMuPDF
 from PIL import Image
 import sys
 from langchain.storage import LocalFileStore
@@ -29,10 +30,11 @@ import numpy as nf
 import tensorflow_hub as hub
 from langchain_core.embeddings import Embeddings
 
-import test_llm_basics.open_ai_util as open_ai_integration
+import open_ai_util as open_ai_integration
 import supabase_docstore as custom_supabase
 import paragraph_parser as custom_text_parser
 import custom_embeddings
+import constants
 
 
 from dotenv import load_dotenv
@@ -373,12 +375,65 @@ def process_image_overlaps(cor_list, image_path_mapping):
     return final_image_path_list
 
 
+def get_pdf_page_size(file_path):
+    # Look if this can be utilised
+    pdf_document = fitz.open(file_path)
+    page_heights = {}
+    for page_number, page in enumerate(pdf_document):
+        page = pdf_document[page_number]
+        media_box = page.mediabox
+        height_in_points = media_box.height
+        page_heights[page_number] = height_in_points
+    pdf_document.close()
+    return page_heights
+
+
+def detect_header_and_footer(doc):
+    """
+    Detects Potential headers and footers from a pdf and returns a set of such texts
+    """
+
+    headers = {}
+    footers = {}
+    # NO ELEMENT EXACTLY MATCHING TO THESE SHALL BE PICKED
+    eliminated_texts = set()
+    max_page = doc[len(doc)-1].metadata['page_number']
+    for index, d in enumerate(doc):
+        curr_page = d.metadata['page_number']
+        category = d.metadata['category']
+        # TODO Look if this can be improvised
+        if category in ['Header', 'Footer', 'Footnote', 'Page-footer']:
+            eliminated_texts.add(d.page_content)
+        elif category not in ['Title', 'Image', 'Table'] and len(d.page_content) < 100:
+            _, _, (_, max_height), _ = d.metadata['coordinates']['points']
+
+            if index-5 < 0 or doc[index-5].metadata['page_number'] != curr_page:
+                # Either last page does not exist or there is a page change
+                if max_height <= 100:
+                    headers[d.page_content] = headers.get(
+                        d.page_content, 0) + 1
+
+            if len(doc) <= index + 5 or doc[index+5].metadata['page_number'] != curr_page:
+                # Either next page does not exist or there is a page change
+                footers[d.page_content] = footers.get(
+                    d.page_content, 0) + 1
+    for page_content, apperance_count in headers.items():
+        if apperance_count >= 0.8 * max_page:
+            # appears atleast thrice or on more than 80 % of the pages
+            eliminated_texts.add(page_content)
+    for page_content, apperance_count in footers.items():
+        if apperance_count >= min(3, 0.8 * max_page):
+            # appears atleast thrice or on more than 80 % of the pages
+            eliminated_texts.add(page_content)
+    return eliminated_texts
+
+
 def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_local_embeddings=False):
     """
     Takes a file path, creates child chunks and parent documents and loads them to vectorstore and doc store respectively
     ## WORKS WELL ONLY FOR PDF AS OF NOW
     """
-    doc = UnstructuredFileLoader(
+    docs = UnstructuredFileLoader(
         file_path=file_path,
         strategy='hi_res',
         mode='elements',
@@ -387,10 +442,10 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         pdf_extract_images=True,
         chunking_strategy='by-title'
     ).load()
+    # stores list of high probable headers and footers
+    eliminated_texts = detect_header_and_footer(docs)
     cor_list = []
     image_path_mapping = {}
-    SUB_TEXT_LIST = ['Text', 'NarrativeText',
-                     'BulletedText']  # Improvise this later
     child_document_list = []
     # TODO: Update this to parent_document_list.
     larger_document_list = []
@@ -399,27 +454,38 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
     last_narrative_text = None
     curr_chunk = ""
     doc_id = str(uuid.uuid4())
-    for d in doc:
+    for d in docs:
         page_content = d.page_content
         category = d.metadata['category']
         d.metadata['id'] = doc_id
         table_details = d.metadata.get('text_as_html')
         # NARRATIVE TEXT HAS TO be one of text, narrative_text, BulletedText
-        if category in SUB_TEXT_LIST:
+        if category in constants.SUB_TEXT_LIST:
             last_narrative_text = page_content
-        # SKIP INFERING PAGE NUMBERS
-        if page_content.isdigit():
+        if page_content.isdigit() or page_content in eliminated_texts:
+            # SKIPPING INFERING PAGE NUMBERS
+            # SKIPPING IF page_content in eliminated_texts
+            print("SKIPPING-->", page_content)
             continue
         # PROCESSING BEGINS
 
         # PROCESSING TITLE
         if d.metadata.get('category') == 'Title':
             if last_title and len(curr_chunk) > 0:
+                parent_doc = f'{last_title}\n{curr_chunk}'
                 larger_document_list.append((
                     d.metadata['id'],
                     Document(
-                        page_content=f'{last_title}\n{curr_chunk}', metadata=d.metadata)
+                        page_content=parent_doc, metadata=d.metadata)
                 ))
+                # create summary of entire page right here and generate an extensive list of questions here
+                # EVALUATE IF TOP-5/x questions make more sense or fetching an extensive list makes more sense
+                child_document_list.extend(open_ai_integration.get_paragraph_description(
+                    parent_doc,
+                    d.metadata,
+                    custom_text_parser.get_word_count(parent_doc) > constants.MIN_WORD_COUNT_FOR_SUMMARY
+                ))
+
             doc_id = str(uuid.uuid4())
             curr_chunk = ""
             last_title = f'{d.page_content}: \n'
@@ -448,43 +514,55 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         else:
             child_document_list.extend(custom_text_parser.parse_paragraph(
                 d.page_content, d.metadata, last_title))
-
-            if len(curr_chunk) + len(page_content) > 4000:
+            # EVALUATE SETTING HARD LIMIT ON WORDS FOR PARENT DOC AS THIS WILL BE SENT AS CONTEXT
+            # if custom_text_parser.get_word_count(curr_chunk) + custom_text_parser.get_word_count(page_content) > constants.MAX_WORD_LIMIT_FOR_PARENT:
+            if len(curr_chunk) + len(page_content) > constants.MAX_CHAR_LIMIT_FOR_PARENT:
                 # update meta deta, currently its inappropriate
                 # HANDLE paragraphs pre-chunked to multiple pages
-                larger_document_list.append((d.metadata['id'],
-                                             Document(page_content=f'{last_title}\n{curr_chunk}', metadata=d.metadata)))
+                larger_document_list.append((
+                    d.metadata['id'],
+                    Document(
+                        page_content=f'{last_title}\n{curr_chunk}', metadata=d.metadata)
+                ))
                 doc_id = str(uuid.uuid4())  # update the doc_id for new parent
                 curr_chunk = page_content
             else:
                 curr_chunk += (page_content)
 
             # list of documents with summarised paragraph and questions if the size is greater than 300
-            add_summary = len(page_content) > 300
-            if add_summary:
-                child_document_list.extend(
-                    open_ai_integration.get_paragraph_description(page_content, d.metadata, add_summary))
+            # add_summary = len(page_content) > 300
+            # if add_summary:
+            #     child_document_list.extend(
+            #         open_ai_integration.get_paragraph_description(page_content, d.metadata, add_summary))
 
     if len(curr_chunk) > 0:
-        larger_document_list.append((doc_id,
-                                     Document(page_content=f'{last_title}\n{curr_chunk}', metadata={'id': doc_id})))
-        if len(curr_chunk) > 300:  # temporarily do not summarise small paragraphs
-            child_document_list.extend(
-                open_ai_integration.get_paragraph_description(curr_chunk, d.metadata, len(curr_chunk) > 300))
+        parent_doc = f'{last_title}\n{curr_chunk}'
+        ## TODO Improvise the metadata here
+        metadata = {'id': doc_id}
+        larger_document_list.append((
+            doc_id,
+            Document(page_content=parent_doc, metadata=metadata)
+        ))
+        child_document_list.extend(open_ai_integration.get_paragraph_description(
+            parent_doc,
+            metadata,
+            custom_text_parser.get_word_count(parent_doc) > constants.MIN_WORD_COUNT_FOR_SUMMARY
+        ))
+        # if len(curr_chunk) > 300:  # temporarily do not summarise small paragraphs
+        #     child_document_list.extend(
+        #         open_ai_integration.get_paragraph_description(curr_chunk, d.metadata, len(curr_chunk) > 300))
 
         # child_document_list.extend(custom_text_parser.parse_paragraph(
-        #     d.page_content, d.metadata, last_title))
+        #     curr_chunk, d.metadata, last_title))
         # d.page_content = f'{last_title}{d.page_content}'
-    final_image_path_list = process_image_overlaps(
-        cor_list, image_path_mapping)
-    print(final_image_path_list)
+    final_image_path_list = process_image_overlaps(cor_list, image_path_mapping)
     if final_image_path_list:
-        a, b = process_extracted_files(final_image_path_list)
-        print("RESPONSE FROM IMAGES--> parent ", a)
-        print("RESPONSE FROM IMAGES--> child ", b)
-        child_document_list.extend(b)
-        larger_document_list.extend(a)
-    # # TODO: improve this to pass in parent document
+        parent_doc_list_from_images, child_doc_list_from_images = process_extracted_files(final_image_path_list)
+        print("RESPONSE FROM IMAGES--> parent ", parent_doc_list_from_images)
+        print("RESPONSE FROM IMAGES--> child ", child_doc_list_from_images)
+        child_document_list.extend(child_doc_list_from_images)
+        larger_document_list.extend(parent_doc_list_from_images)
+    # # # TODO: improve this to pass in parent document
 
     # Writes down all the chunks into child_list.txt file
     # Helpful for debugging
@@ -511,4 +589,5 @@ if __name__ == "__main__":
         exit(1)
     file_paths = sys.argv[1:]
     for file_path in file_paths:
-        create_parent_child_vectorstore(file_path)
+        create_parent_child_vectorstore(file_path, False, True)
+        print("Vector Store and Doc store created for --> ", file_path)

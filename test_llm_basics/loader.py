@@ -1,3 +1,4 @@
+import spacy
 import fitz  # pip install PyMuPDF
 from PIL import Image
 import sys
@@ -425,7 +426,64 @@ def detect_header_and_footer(doc):
         if apperance_count >= min(3, 0.8 * max_page):
             # appears atleast thrice or on more than 80 % of the pages
             eliminated_texts.add(page_content)
+    print("DETECTED HEADERS AND FOOTERS --> ", eliminated_texts)
     return eliminated_texts
+
+
+def format_bulleted_text(list_item):
+    import re
+    # TODO: improvise this regex later
+    list_item = re.sub(r'^[●\d]+[.]?\s*', '', list_item)
+    return list_item
+
+
+class SentenceAnalyser:
+    # pip install spacy
+    # python -m spacy download en_core_web_sm
+    def __init__(self) -> None:
+        self.nlp = spacy.load("en_core_web_sm")
+
+    def is_complete_sentence(self, sentence):
+        doc = self.nlp(sentence)
+        print(doc)
+        return all(token.dep_ not in ('punct', 'prep') for token in doc)
+
+
+# sentence_analyser = SentenceAnalyser()
+# p = """
+# Hi My name is Ekansh. Establish a robust foundation of qualitative and quantitative “Voice of Customer” data and
+# insights, spanning perceived value, propensity to pay, demand signals, and other vital
+# """
+# p2 = """
+# DocuSign Envelope ID: 8B1A2840-E81F-4D28-9794-847367538250
+# """
+# print(sentence_analyser.is_complete_sentence(p))
+# print(sentence_analyser.is_complete_sentence(p2))
+
+
+def test_function(docs):
+    last_invalid_sentence = None
+    header = None
+    last_narrative_text = None
+    curr_doc = 0
+    with open('ppt_chunks.txt', 'w')as f:
+        while curr_doc < len(docs):
+            d = docs[curr_doc]
+            page_content = format_bulleted_text(d.page_content)
+            metadata = d.metadata
+            category = metadata['category']
+            print(page_content, category)
+            curr_doc += 1
+            f.write(f"CONTENT-->  {page_content}\n")
+            f.write(f"META-->  {metadata['category']}\n")
+            # USE NLP FOR THIS LATER
+            # if sentence_analyser.is_complete_sentence(page_content):
+            #     while curr_doc+1 < len(docs) and sentence_analyser.is_complete_sentence(docs[curr_doc+1].page_content):
+            #         curr_doc += 1
+            #     # if page_content ==
+
+            # if category in ['BulletedText', 'List', 'ListItem', 'List-item']:
+            #     print(page_content)
 
 
 def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_local_embeddings=False):
@@ -437,6 +495,7 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         file_path=file_path,
         strategy='hi_res',
         mode='elements',
+        include_page_breaks=True,
         skip_infer_table_types=[],
         pdf_infer_table_structure=True,
         pdf_extract_images=True,
@@ -450,16 +509,17 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
     # TODO: Update this to parent_document_list.
     larger_document_list = []
     final_image_path_list = []
+    TYPE_LIST_ITEM = ['BulletedText', 'List', 'ListItem', 'List-item']
     last_title = None
     last_narrative_text = None
     curr_chunk = ""
     doc_id = str(uuid.uuid4())
-    for d in docs:
+    for index, d in enumerate(docs):
         page_content = d.page_content
         category = d.metadata['category']
         d.metadata['id'] = doc_id
         table_details = d.metadata.get('text_as_html')
-        # NARRATIVE TEXT HAS TO be one of text, narrative_text, BulletedText
+        # NARRATIVE TEXT HAS TO be one of text, narrative_text
         if category in constants.SUB_TEXT_LIST:
             last_narrative_text = page_content
         if page_content.isdigit() or page_content in eliminated_texts:
@@ -468,7 +528,8 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
             print("SKIPPING-->", page_content)
             continue
         # PROCESSING BEGINS
-
+        if category in TYPE_LIST_ITEM:
+            page_content = format_bulleted_text(page_content)
         # PROCESSING TITLE
         if d.metadata.get('category') == 'Title':
             if last_title and len(curr_chunk) > 0:
@@ -480,15 +541,25 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
                 ))
                 # create summary of entire page right here and generate an extensive list of questions here
                 # EVALUATE IF TOP-5/x questions make more sense or fetching an extensive list makes more sense
-                child_document_list.extend(open_ai_integration.get_paragraph_description(
-                    parent_doc,
-                    d.metadata,
-                    custom_text_parser.get_word_count(parent_doc) > constants.MIN_WORD_COUNT_FOR_SUMMARY
-                ))
+                create_summary = custom_text_parser.get_word_count(
+                    parent_doc) > constants.MIN_WORD_COUNT_FOR_SUMMARY
+                if create_summary:
+                    child_document_list.extend(open_ai_integration.get_paragraph_description(
+                        parent_doc,
+                        d.metadata,
+                        create_summary
+                    ))
+                else:
+                    d.metadata['doc_id'] = d.metadata['id']
+                    child_document_list.extend(Document(
+                        page_content=parent_doc,
+                        metadata=d.metadata
+                    ))
 
             doc_id = str(uuid.uuid4())
             curr_chunk = ""
             last_title = f'{d.page_content}: \n'
+            last_narrative_text = None  # rest narrative text as well for better context
         # PROCESSING IMAGE
         elif category == 'Image':
             image_path = d.metadata.get('image_path')
@@ -519,11 +590,14 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
             if len(curr_chunk) + len(page_content) > constants.MAX_CHAR_LIMIT_FOR_PARENT:
                 # update meta deta, currently its inappropriate
                 # HANDLE paragraphs pre-chunked to multiple pages
+                parent_doc = f'{last_title}\n{curr_chunk}'
                 larger_document_list.append((
                     d.metadata['id'],
                     Document(
-                        page_content=f'{last_title}\n{curr_chunk}', metadata=d.metadata)
+                        page_content=parent_doc, metadata=d.metadata)
                 ))
+                child_document_list.extend(
+                    open_ai_integration.get_paragraph_description(parent_doc, d.metadata, True))
                 doc_id = str(uuid.uuid4())  # update the doc_id for new parent
                 curr_chunk = page_content
             else:
@@ -537,17 +611,26 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
 
     if len(curr_chunk) > 0:
         parent_doc = f'{last_title}\n{curr_chunk}'
-        ## TODO Improvise the metadata here
+        # TODO Improvise the metadata here
         metadata = {'id': doc_id}
         larger_document_list.append((
             doc_id,
             Document(page_content=parent_doc, metadata=metadata)
         ))
-        child_document_list.extend(open_ai_integration.get_paragraph_description(
-            parent_doc,
-            metadata,
-            custom_text_parser.get_word_count(parent_doc) > constants.MIN_WORD_COUNT_FOR_SUMMARY
-        ))
+        create_summary = custom_text_parser.get_word_count(
+            parent_doc) > constants.MIN_WORD_COUNT_FOR_SUMMARY
+        if create_summary:
+            child_document_list.extend(open_ai_integration.get_paragraph_description(
+                parent_doc,
+                d.metadata,
+                create_summary
+            ))
+        else:
+            d.metadata['doc_id'] = d.metadata['id']
+            child_document_list.extend(Document(
+                page_content=parent_doc,
+                metadata=d.metadata
+            ))
         # if len(curr_chunk) > 300:  # temporarily do not summarise small paragraphs
         #     child_document_list.extend(
         #         open_ai_integration.get_paragraph_description(curr_chunk, d.metadata, len(curr_chunk) > 300))
@@ -555,9 +638,11 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         # child_document_list.extend(custom_text_parser.parse_paragraph(
         #     curr_chunk, d.metadata, last_title))
         # d.page_content = f'{last_title}{d.page_content}'
-    final_image_path_list = process_image_overlaps(cor_list, image_path_mapping)
+    final_image_path_list = process_image_overlaps(
+        cor_list, image_path_mapping)
     if final_image_path_list:
-        parent_doc_list_from_images, child_doc_list_from_images = process_extracted_files(final_image_path_list)
+        parent_doc_list_from_images, child_doc_list_from_images = process_extracted_files(
+            final_image_path_list)
         print("RESPONSE FROM IMAGES--> parent ", parent_doc_list_from_images)
         print("RESPONSE FROM IMAGES--> child ", child_doc_list_from_images)
         child_document_list.extend(child_doc_list_from_images)
@@ -589,5 +674,5 @@ if __name__ == "__main__":
         exit(1)
     file_paths = sys.argv[1:]
     for file_path in file_paths:
-        create_parent_child_vectorstore(file_path, False, True)
+        create_parent_child_vectorstore(file_path, False, False) # CHANGE THESE VALUES AS PER NEED
         print("Vector Store and Doc store created for --> ", file_path)

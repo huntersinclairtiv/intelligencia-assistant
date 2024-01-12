@@ -1,8 +1,10 @@
 # THIS SHOULD BE IMPLEMENTED USING BUILT-IN CHAINS
 # MAKE USE OF SYSTEM MESSAGES FOR BETTER RESULTS
 
-from openai import OpenAI
 import base64
+import json
+
+from openai import OpenAI
 
 import paragraph_parser as custom_parser
 
@@ -75,6 +77,32 @@ def get_image_description(img_url, header=None, narrative_text=None):
     return response.choices[0].message.content
 
 
+def quest_list_from_context(context, metadata={}, header=None, narrative_text=None, model='gpt-4-1106-preview'):
+    SYSTEM_PROMT = """
+    Use the given **context** to generate a list of questions.
+    Ensure that the questions are relevant and focused on extracting information present in the context.
+    Avoid generating questions that require external knowledge or assumptions.
+    The response should not contain any bullet points or numbering for questions.
+    The respone should be an json array of strings where each string represents an individual question.
+    """
+    USER_PROMPT = f'context: {context}'
+    #TODO Update the prompt to work with header and narrative text as well
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMT
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": USER_PROMPT}
+            ],
+        }
+    ]
+    response = get_openai_respone(messages=messages, model=model)
+    return json.loads(response.choices[0].message.content)
+
+
 def get_paragraph_description(paragraph, metadata={}, add_summary=False):
     PROMPT = f"""
     From the given **context**, provide a detailed summary and insights that can be easily indexed for a Retrieval Augmented Genration Model. 
@@ -108,6 +136,17 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
     Avoid generating questions that require external knowledge or assumptions.
     The response should not contain any bullet points or numbering for questions.
     """
+    QUES_LIST_PROMPT = {
+        'SYSTEM': """
+        Use the given **context** to generate a list of questions.
+        Ensure that the questions are relevant and focused on extracting information present in the context.
+        Avoid generating questions that require external knowledge or assumptions.
+        The response should not contain any bullet points or numbering for questions.
+        The respone should be an json array of strings where each string represents an individual question.
+        """,
+        'USER': f'context: {paragraph}'
+    }
+
     # If the paragraph contains no relevant information that might be used for answering, return "UNEXTRACTABLE_DATA"
     messages = [
         {
@@ -131,14 +170,19 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
 
     messages = [
         {
+            "role": "system",
+            "content": QUES_LIST_PROMPT['SYSTEM']
+        },
+        {
             "role": "user",
             "content": [
-                {"type": "text", "text": QUES_LIST_PROMPT}
+                {"type": "text", "text": QUES_LIST_PROMPT['USER']}
             ],
         }
     ]
     response = get_openai_respone(messages, model)
-    print(response.choices[0].message.content)
+    print(json.loads(response.choices[0].message.content))
+
     docs.extend(custom_parser.parse_paragraph(
         response.choices[0].message.content, metadata))
     return docs
@@ -209,3 +253,13 @@ def get_llm_response(context, question):
     ]
     response = get_openai_respone(messages, model)
     return response.choices[0].message.content
+
+
+p = """
+Activities
+A9 Thinktiv will prepare and conduct 10 – 15 interviews with a combination of Client’s end-
+customers, representative commercial buyers, and/or customers of competing products (as
+possible), focusing on identifying pain points, fundamental requirements, and perceived
+value of key Client product capabilities.
+"""
+# get_paragraph_description(p)

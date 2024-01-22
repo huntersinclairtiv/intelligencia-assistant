@@ -1,6 +1,8 @@
 # THIS SHOULD BE IMPLEMENTED USING BUILT-IN CHAINS
 # MAKE USE OF SYSTEM MESSAGES FOR BETTER RESULTS
 
+from langchain_openai import ChatOpenAI
+from langchain.chains import create_sql_query_chain
 import base64
 import json
 
@@ -86,7 +88,7 @@ def quest_list_from_context(context, metadata={}, header=None, narrative_text=No
     The respone should be an json array of strings where each string represents an individual question.
     """
     USER_PROMPT = f'context: {context}'
-    #TODO Update the prompt to work with header and narrative text as well
+    # TODO Update the prompt to work with header and narrative text as well
     messages = [
         {
             "role": "system",
@@ -255,11 +257,131 @@ def get_llm_response(context, question):
     return response.choices[0].message.content
 
 
-p = """
-Activities
-A9 Thinktiv will prepare and conduct 10 – 15 interviews with a combination of Client’s end-
-customers, representative commercial buyers, and/or customers of competing products (as
-possible), focusing on identifying pain points, fundamental requirements, and perceived
-value of key Client product capabilities.
+def query():
+    PROMPT = """
+    Using the given **context**, answer the following **query**.
+    context:
+    I want to index my RDS database to implement a Retrieveal Augmeneted Generator Model.
+    While exploring, I came across a few tools such as pgvector to store embeddings in the same RDS database.
+    However I am confused on what will be the data/(exact sentence or keywords) 
+    that I'll create embeddings from as embedding an entire row might cause into loss of relations If foreign keys are present.
+    **query**:
+    1). What data should I create embeddings from ?
+    2). What can be other strategies to solve the entire issue of indexing RDS database of RAG? I am open to any sort of solution that would work.
+    """
+    model = 'gpt-4-1106-preview'
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": PROMPT}
+            ],
+        }
+    ]
+    response = get_openai_respone(messages, model, 1000)
+    print(response)
+
+
+def get_ques_list_for_rds_table(command):
+    SYSTEM_PROMPT = """
+    Given the schema for an SQL table, generate an extensive list of questions that can be answered using this table. Ensure the questions are data-driven and not specific to the table's structure. 
+    The questions must cover various aspects of the table. Categorize the questions based on the columns that answer those questions
+    The generated response should be a valid json object without any explicit mention of json and with following format:
+    {
+    "column_1": ["ques1", "ques2", ...],
+    "column_3": ["ques4", "ques3", ...],
+    .....
+    }
+    """
+    model = 'gpt-4-1106-preview'
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT
+        },
+        {
+            "role": "user",
+            "content": command
+        }
+    ]
+    response = get_openai_respone(messages, model)
+    print(response.choices[0].message.content)
+    return json.loads(response.choices[0].message.content)
+
+
+# print(get_ques_list_for_rds_table("""CREATE TABLE MainPrograms (
+#     id INT PRIMARY KEY,
+#     project VARCHAR(255),
+#     start_date DATE,
+#     end_date DATE
+# )
+# """))
+
+
+def nl_to_Sql(table_schema, query):
+    client = OpenAI()
+
+    response = client.chat.completions.create(
+        model="gpt-4-1106-preview",
+        messages=[
+            {
+              "role": "system",
+              "content": f"Given the following SQL tables, your job is to write SQL queries given a user's request. {table_schema}. \n Return only the sql query and nothing else."
+            },
+            {
+                "role": "user",
+                "content": query
+            }
+        ],
+        temperature=0,
+        max_tokens=300,
+        top_p=1
+    )
+    return response.choices[0].message.content
+
+
+table_schema = """
+CREATE TABLE MappingHarvest(
+  "harvest_id" TEXT,
+  "harvest_project_name" VarChar(500),
+  "harvest_client" TEXT,
+  "hubspot_match" VarChar(500),
+  "Program_Tracker_ID" INT,
+  "Program_UID"  INT,
+  CONSTRAINT [PK_MappingHarvest] PRIMARY KEY  ([harvest_id]),
+  FOREIGN KEY ([hubspot_match]) REFERENCES [HubSpotCompanyDetails] ([Company_name]),
+  FOREIGN KEY ([Program_Tracker_ID]) REFERENCES [ProgramTracker] ([Program_UID]),
+  FOREIGN KEY ([Program_UID]) REFERENCES [MainPrograms] ([Program_UID])
+);
+
+
+CREATE TABLE HubSpotContacts (
+    id INTEGER,
+    "First Name" TEXT,
+    "Last Name" TEXT,
+    "Email Domain" TEXT,
+    Email TEXT,
+    "Mobile Phone Number" TEXT,
+    "Job Title" TEXT,
+    Name TEXT,
+    "Company_IDs" TEXT
+);
+
+
+CREATE TABLE HubSpotCompanyContacts(
+    id INTEGER,
+    Company_IDs INTEGER,
+    FOREIGN KEY ([id]) REFERENCES [HubSpotContacts] ([id])
+    FOREIGN KEY ([Company_IDs]) REFERENCES [HubSpotCompanyDetails] (["Hubspot ID"])
+);
 """
-# get_paragraph_description(p)
+query = "What is the JobTitle for the Company Contact of the project 'HRSoft BVA'"
+# nl_to_Sql(table_schema, query)
+# get_ques_list_for_rds_table("""
+#     CREATE TABLE HubSpotCompanyContacts(
+#     id INTEGER,
+#     Company_IDs INTEGER,
+#     FOREIGN KEY ([id]) REFERENCES [HubSpotContacts] ([id])
+#     FOREIGN KEY ([Company_IDs]) REFERENCES [HubSpotCompanyDetails] (["Hubspot ID"])
+# );
+#                             """)

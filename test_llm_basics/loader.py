@@ -228,28 +228,45 @@ def create_and_merge(path, mode='single'):
     return merge_with_old_vectorstore(new_vectorstore)
 
 
+def write_image_to_file(picture, file_path):
+    image = picture.image
+    # ---get image "file" contents---
+    image_bytes = image.blob
+    # ---make up a name for the file, e.g. 'image.jpg'---
+    image_filename = 'image.%s' % image.ext
+    with open(image_filename, 'wb') as f:
+        f.write(image_bytes)
+
+
 def process_pptx_files(filepath_list):
     """
     Loads list pptx files in the form of key value pairs 
     ## CURRENTLY NOT IN USE, SHALL BE UPDATED LATER
     """
     from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
     file_dict = {}
     for file in filepath_list:
         f = open(f'{file}', "rb")
         prs = Presentation(f)
         text_runs = []
+        count = 0
+        h = set()
         for slide in prs.slides:
             for shape in slide.shapes:
-                if shape.has_image:
-                    with open('test.jpeg', 'w') as f:
-                        f.write(shape.image)
+                h.add(shape.shape_type)
+                print(shape.has_chart)
+                if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                    with open(f'test_{count}.jpeg', 'wb') as f:
+                        f.write(shape.image.blob)
+                        count += 1
                 if not shape.has_text_frame:
                     continue
                 for paragraph in shape.text_frame.paragraphs:
                     for run in paragraph.runs:
                         text_runs.append(run.text)
         file_dict[file] = " ".join(text_runs)
+        print(h)
     return file_dict
 
 
@@ -472,10 +489,14 @@ def test_function(docs):
             page_content = format_bulleted_text(d.page_content)
             metadata = d.metadata
             category = metadata['category']
+            table_detals = metadata.get('text_as_html')
             print(page_content, category)
             curr_doc += 1
             f.write(f"CONTENT-->  {page_content}\n")
             f.write(f"META-->  {metadata['category']}\n")
+            if table_detals:
+                f.write(f"TABLE---> {table_detals}\n")
+
             # USE NLP FOR THIS LATER
             # if sentence_analyser.is_complete_sentence(page_content):
             #     while curr_doc+1 < len(docs) and sentence_analyser.is_complete_sentence(docs[curr_doc+1].page_content):
@@ -495,12 +516,15 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         file_path=file_path,
         strategy='hi_res',
         mode='elements',
+        include_slide_notes=True,  # WILL INCLUDE READER NOTES AS WELL
         include_page_breaks=True,
         skip_infer_table_types=[],
         pdf_infer_table_structure=True,
         pdf_extract_images=True,
         chunking_strategy='by-title'
     ).load()
+    test_function(docs)
+    exit(1)
     # stores list of high probable headers and footers
     eliminated_texts = detect_header_and_footer(docs)
     cor_list = []
@@ -673,6 +697,9 @@ if __name__ == "__main__":
         print("Usage: python loader.py file_path1 file_path2 ...")
         exit(1)
     file_paths = sys.argv[1:]
-    for file_path in file_paths:
-        create_parent_child_vectorstore(file_path, False, False) # CHANGE THESE VALUES AS PER NEED
-        print("Vector Store and Doc store created for --> ", file_path)
+    process_pptx_files(file_paths)
+
+    # for file_path in file_paths:
+    #     # CHANGE THESE VALUES AS PER NEED
+    #     # create_parent_child_vectorstore(file_path, False, False)
+    #     print("Vector Store and Doc store created for --> ", file_path)

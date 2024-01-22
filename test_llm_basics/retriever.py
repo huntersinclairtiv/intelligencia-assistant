@@ -10,6 +10,7 @@ from langchain_community.vectorstores import SupabaseVectorStore
 from supabase.client import Client, create_client
 
 import supabase_docstore as custom_docstore
+import custom_embeddings
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -30,7 +31,7 @@ def get_supabase_vectorstore(table_name, match_function):
     supabase_key = os.environ.get("SUPABASE_KEY")
     supabase: Client = create_client(supabase_url, supabase_key)
     return SupabaseVectorStore(
-        embedding=OpenAIEmbeddings(),
+        embedding=custom_embeddings.CustomSupabaseEmbeddings(),
         client=supabase,
         table_name=table_name,
         query_name=match_function
@@ -67,7 +68,10 @@ def process_queries(query_list):
 if __name__ == "__main__":
 
     query_list = [
-        "What was the reason for decline of Sales?"
+        # "Summarize the Project Objectives in less than 100 words."
+        # "Provide me the name and designation of the people who signed the agreement"
+        # "When was the agreement signed?"
+        "What was the total payment? Also provide a complete breakdown of the payment"
         # Add or remove questions from here and the corresponding output file will be generated under the 'outputs' folder
     ]
 

@@ -44,7 +44,7 @@ def process_shapes(slide, page_number, skip_text=None):
     """
     Extracts data from the slide/Group Shapes and returns a List of Document(s)
     """
-    global count
+    global image_count
     if not os.path.exists(image_folder):
         os.makedirs(image_folder)
     parsed_docs = []
@@ -62,7 +62,7 @@ def process_shapes(slide, page_number, skip_text=None):
             # metadata['cordinates'] # TODO:: Add support for narrative text via coridinates if possible
             with open(metadata['image_path'], 'wb') as f:
                 f.write(shape.image.blob)
-                #TODO:: VERIFY IF PARSING IMAGE VIA UNSTRUCTURED HERE IS MORE REASONABLE
+                # TODO:: VERIFY IF PARSING IMAGE VIA UNSTRUCTURED HERE IS MORE REASONABLE
                 image_count += 1
             parsed_docs.append(Document(page_content='', metadata=metadata))
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
@@ -91,34 +91,33 @@ def process_shapes(slide, page_number, skip_text=None):
     return parsed_docs
 
 
-def process_pptx_files(filepath_list):
+def process_pptx_files(filepath):
     """
     Process a pptx file and returns a List of Documents(s)
     """
-    for file in filepath_list:
-        f = open(f'{file}', "rb")
-        prs = Presentation(f)
-        docs = []
-        page_number = 1
-        last_title = None
-        for slide in prs.slides:
-            curr_title = slide.shapes.title
-            update_title = True
-            if curr_title:
-                skip_text = curr_title.text
-                if last_title and curr_title.text.startswith(last_title.rstrip(string.punctuation + string.whitespace)):
-                    if 0.7 * len(curr_title.text) < len(last_title):
-                        # matches over 70 % from the last title
-                        update_title = False
-                # append this to list as well
-                if update_title:
-                    last_title = curr_title.text
-                    docs.append(Document(page_content=last_title, metadata={
-                                'page_number': page_number,
-                                'category': 'Title'
-                                }))
-            docs.extend(process_shapes(slide, page_number, skip_text))
-            page_number += 1
+    f = open(f'{filepath}', "rb")
+    prs = Presentation(f)
+    docs = []
+    page_number = 1
+    last_title = None
+    for slide in prs.slides:
+        curr_title = slide.shapes.title
+        update_title = True
+        if curr_title:
+            skip_text = curr_title.text
+            if last_title and curr_title.text.startswith(last_title.rstrip(string.punctuation + string.whitespace)):
+                if 0.7 * len(curr_title.text) < len(last_title):
+                    # matches over 70 % from the last title
+                    update_title = False
+            # append this to list as well
+            if update_title:
+                last_title = curr_title.text
+                docs.append(Document(page_content=last_title, metadata={
+                            'page_number': page_number,
+                            'category': 'Title'
+                            }))
+        docs.extend(process_shapes(slide, page_number, skip_text))
+        page_number += 1
     return docs
 
 
@@ -290,10 +289,30 @@ def index_doc_for_parent_child_retriever(docs):
     store.mset(parent_doc_list)
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python loader.py file_path1 file_path2 ...")
-        exit(1)
-    file_paths = sys.argv[1:]
-    docs = process_pptx_files(file_paths)
+def process(file_path):
+    docs = process_pptx_files(file_path)
+    for doc in docs:
+        image_path = doc.metadata.get('image_path')
+        if image_path:
+            size_in_kb = os.stat(image_path).st_size/1024
+
+            if size_in_kb < 50:
+                print(image_path)
+                image_data = UnstructuredFileLoader(
+                    file_path=image_path,
+                    strategy='hi_res',
+                    # mode='elements',
+                    include_slide_notes=True,  # WILL INCLUDE READER NOTES AS WELL
+                    include_page_breaks=True,
+                    skip_infer_table_types=[],
+                    pdf_infer_table_structure=True,
+                    pdf_extract_images=True,
+                    chunking_strategy='by-title'
+                ).load()[0].page_content
+                if paragraph_parser.get_word_count(image_data) < 5:
+                    # do not parse it
+
+                    pass
+                # ONLY LOAD THIS IMAGE VIA UNSTRUCTURED
+            # print(image_path, size_in_kb, doc)
     index_doc_for_parent_child_retriever(docs)

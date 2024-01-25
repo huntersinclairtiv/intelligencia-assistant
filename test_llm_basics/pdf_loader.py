@@ -523,7 +523,8 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
 
     vectorstore = None
     if use_local_vectorstore:
-        vectorstore = chroma_db_util.create_persistent_vector_database(child_document_list)
+        vectorstore = chroma_db_util.create_persistent_vector_database(
+            child_document_list)
     else:
         vectorstore = create_supabase_vectorstore(
             child_document_list, embeddings_table, use_local_embeddings)  # using the embeddings table picked from env var
@@ -532,12 +533,6 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
     return vectorstore
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python loader.py file_path1 file_path2 ...")
-        exit(1)
-    file_paths = sys.argv[1:]
-
-    for file_path in file_paths:
-        create_parent_child_vectorstore(file_path, False, False)
-        print("Vector Store and Doc store created for --> ", file_path)
+def process(file_path):
+    create_parent_child_vectorstore(file_path, False, False)
+    print("Vector Store and Doc store created for --> ", file_path)

@@ -6,6 +6,8 @@ from langchain.chains import create_sql_query_chain
 import base64
 import json
 
+from langchain.docstore.document import Document
+
 from openai import OpenAI
 
 import paragraph_parser as custom_parser
@@ -143,8 +145,8 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
         Use the given **context** to generate a list of questions.
         Ensure that the questions are relevant and focused on extracting information present in the context.
         Avoid generating questions that require external knowledge or assumptions.
-        The response should not contain any bullet points or numbering for questions.
-        The respone should be an json array of strings where each string represents an individual question.
+        The generated response should be a valid json object without any explicit mention of json and with following format:
+        ["ques1", "ques2", .... ]
         """,
         'USER': f'context: {paragraph}'
     }
@@ -183,10 +185,14 @@ def get_paragraph_description(paragraph, metadata={}, add_summary=False):
         }
     ]
     response = get_openai_respone(messages, model)
-    print(json.loads(response.choices[0].message.content))
+    print(response.choices[0].message.content)
+    metadata['doc_id'] = metadata.get('id')
+    try:
+        docs.extend([Document(page_content=question, metadata=metadata)
+                     for question in json.loads(response.choices[0].message.content)])
+    except Exception as e:
+        print("ERROR CAUSED--->", e)
 
-    docs.extend(custom_parser.parse_paragraph(
-        response.choices[0].message.content, metadata))
     return docs
 
 
@@ -205,7 +211,8 @@ def get_table_description(table, metadata={}, header=None, narrative_text=None):
     Provide a list of questions that can be answered using the following **table**.
     Provide at most top 5 most relevant questions. The questions must cover various aspects of the table.
     The response should be precise and to the point.
-    The response should not contain any bullet points or numbering for questions.
+    The generated response should be a valid json object without any explicit mention of json and with following format:
+    ["ques1", "ques2", .... ]
     table: {table}
     """
     messages = [
@@ -231,8 +238,12 @@ def get_table_description(table, metadata={}, header=None, narrative_text=None):
     ]
     response = get_openai_respone(messages, model)
     print(response.choices[0].message.content)
-    docs.extend(custom_parser.parse_paragraph(
-        response.choices[0].message.content, metadata))
+    metadata['doc_id'] = metadata.get('id')
+    try:
+        docs.extend([Document(page_content=question, metadata=metadata)
+                     for question in json.loads(response.choices[0].message.content)])
+    except Exception as e:
+        print("ERROR OCCURED--> ", e)
     return docs
 
 
@@ -309,15 +320,6 @@ def get_ques_list_for_rds_table(command):
     return json.loads(response.choices[0].message.content)
 
 
-# print(get_ques_list_for_rds_table("""CREATE TABLE MainPrograms (
-#     id INT PRIMARY KEY,
-#     project VARCHAR(255),
-#     start_date DATE,
-#     end_date DATE
-# )
-# """))
-
-
 def nl_to_Sql(table_schema, query):
     client = OpenAI()
 
@@ -340,48 +342,82 @@ def nl_to_Sql(table_schema, query):
     return response.choices[0].message.content
 
 
-table_schema = """
-CREATE TABLE MappingHarvest(
-  "harvest_id" TEXT,
-  "harvest_project_name" VarChar(500),
-  "harvest_client" TEXT,
-  "hubspot_match" VarChar(500),
-  "Program_Tracker_ID" INT,
-  "Program_UID"  INT,
-  CONSTRAINT [PK_MappingHarvest] PRIMARY KEY  ([harvest_id]),
-  FOREIGN KEY ([hubspot_match]) REFERENCES [HubSpotCompanyDetails] ([Company_name]),
-  FOREIGN KEY ([Program_Tracker_ID]) REFERENCES [ProgramTracker] ([Program_UID]),
-  FOREIGN KEY ([Program_UID]) REFERENCES [MainPrograms] ([Program_UID])
-);
+def ppt_slide_summary_generator(ppt_title, slide_text, metadata={}):
+    SYSTEM_PROMPT = """
+    Given the the **title** of the entire presentation and **extracted text** from one of the slides from the same presentation, generate extensive summary for the slide and the insights that the slide holds.
+    The response should be concsie and upto the point.
+    The response must not contain any explicit mention of any summary or insights.
+    The response should not contain any bullet points or numbering for insights or any other aspect of response.
+    """
+    USER_PROMPT = f"""
+    title: {ppt_title}
+    extracted text: {slide_text}
+    """
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4-1106-preview",
+        messages=[
+            {
+              "role": "system",
+              "content": SYSTEM_PROMPT
+            },
+            {
+                "role": "user",
+                "content": USER_PROMPT
+            }
+        ],
+        temperature=0,
+        max_tokens=300,
+        top_p=1
+    )
+    print("SUMMARY-->", response.choices[0].message.content)
+    return custom_parser.parse_paragraph(response.choices[0].message.content, metadata)
 
 
-CREATE TABLE HubSpotContacts (
-    id INTEGER,
-    "First Name" TEXT,
-    "Last Name" TEXT,
-    "Email Domain" TEXT,
-    Email TEXT,
-    "Mobile Phone Number" TEXT,
-    "Job Title" TEXT,
-    Name TEXT,
-    "Company_IDs" TEXT
-);
+def ppt_slide_question_generator(ppt_title, slide_text, metadata={}):
+    SYSTEM_PROMPT = """
+    Given the the **title** of the entire presentation and **extracted text** from one of the slides from the same presentation, generate list of upto 6 questions that can be answered using this slide.
+    The generated response should be a valid json object without any explicit mention of json and with following format:
+    ["ques1", "ques2", .... ]
+    """
+    USER_PROMPT = f"""
+    title: {ppt_title}
+    extracted text: {slide_text}
+    """
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4-1106-preview",
+        messages=[
+            {
+              "role": "system",
+              "content": SYSTEM_PROMPT
+            },
+            {
+                "role": "user",
+                "content": USER_PROMPT
+            }
+        ],
+        temperature=0,
+        max_tokens=300,
+        top_p=1
+    )
+    print("QUESTION-->", response.choices[0].message.content)
+    metadata['doc_id'] = metadata.get('id')
+    docs = []
+    try:
+        docs = [Document(page_content=question, metadata=metadata)
+                for question in json.loads(response.choices[0].message.content)]
+    except Exception as e:
+        print("ERROR CAUSED--->", e)
+    return docs
 
 
-CREATE TABLE HubSpotCompanyContacts(
-    id INTEGER,
-    Company_IDs INTEGER,
-    FOREIGN KEY ([id]) REFERENCES [HubSpotContacts] ([id])
-    FOREIGN KEY ([Company_IDs]) REFERENCES [HubSpotCompanyDetails] (["Hubspot ID"])
-);
-"""
-query = "What is the JobTitle for the Company Contact of the project 'HRSoft BVA'"
-# nl_to_Sql(table_schema, query)
-# get_ques_list_for_rds_table("""
-#     CREATE TABLE HubSpotCompanyContacts(
-#     id INTEGER,
-#     Company_IDs INTEGER,
-#     FOREIGN KEY ([id]) REFERENCES [HubSpotContacts] ([id])
-#     FOREIGN KEY ([Company_IDs]) REFERENCES [HubSpotCompanyDetails] (["Hubspot ID"])
-# );
-#                             """)
+def ppt_slide_parser(ppt_title, slide_text, generate_summary=False, metadata={}):
+    docs = []
+    if generate_summary:
+        docs.extend(ppt_slide_summary_generator(
+            ppt_title=ppt_title, slide_text=slide_text, metadata=metadata))
+    docs.extend(ppt_slide_question_generator(
+        ppt_title=ppt_title, slide_text=slide_text, metadata=metadata))
+    return docs
+

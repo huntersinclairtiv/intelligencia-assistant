@@ -11,6 +11,8 @@ from supabase.client import Client, create_client
 
 import supabase_docstore as custom_docstore
 import custom_embeddings
+import chroma_db_util
+
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -43,7 +45,7 @@ def process_queries(query_list):
     Accepts a list of queries and writes the responses generated, under the outputs directory
     """
     store = custom_docstore.SupabaseDocstore(documents_table)
-    vectorstore = get_supabase_vectorstore(embeddings_table, match_function)
+    vectorstore = chroma_db_util.get_persistent_vector_database()
     retriever = ParentDocumentRetriever(
         vectorstore=vectorstore,
         docstore=store,

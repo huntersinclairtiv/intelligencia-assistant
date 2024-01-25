@@ -238,38 +238,6 @@ def write_image_to_file(picture, file_path):
         f.write(image_bytes)
 
 
-def process_pptx_files(filepath_list):
-    """
-    Loads list pptx files in the form of key value pairs 
-    ## CURRENTLY NOT IN USE, SHALL BE UPDATED LATER
-    """
-    from pptx import Presentation
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
-    file_dict = {}
-    for file in filepath_list:
-        f = open(f'{file}', "rb")
-        prs = Presentation(f)
-        text_runs = []
-        count = 0
-        h = set()
-        for slide in prs.slides:
-            for shape in slide.shapes:
-                h.add(shape.shape_type)
-                print(shape.has_chart)
-                if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-                    with open(f'test_{count}.jpeg', 'wb') as f:
-                        f.write(shape.image.blob)
-                        count += 1
-                if not shape.has_text_frame:
-                    continue
-                for paragraph in shape.text_frame.paragraphs:
-                    for run in paragraph.runs:
-                        text_runs.append(run.text)
-        file_dict[file] = " ".join(text_runs)
-        print(h)
-    return file_dict
-
-
 def process_extracted_files(image_path_list):
     """
     Process extracted image files and created parent and child chunks on that
@@ -523,8 +491,6 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         pdf_extract_images=True,
         chunking_strategy='by-title'
     ).load()
-    test_function(docs)
-    exit(1)
     # stores list of high probable headers and footers
     eliminated_texts = detect_header_and_footer(docs)
     cor_list = []
@@ -646,7 +612,7 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         if create_summary:
             child_document_list.extend(open_ai_integration.get_paragraph_description(
                 parent_doc,
-                d.metadata,
+                metadata,
                 create_summary
             ))
         else:
@@ -675,7 +641,7 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
 
     # Writes down all the chunks into child_list.txt file
     # Helpful for debugging
-    with open('child_list.txt', 'w') as f:
+    with open('child_list_pdf.txt', 'w') as f:
         for d in child_document_list:
             f.write(f'{d.page_content}\n\n')
 
@@ -697,9 +663,7 @@ if __name__ == "__main__":
         print("Usage: python loader.py file_path1 file_path2 ...")
         exit(1)
     file_paths = sys.argv[1:]
-    process_pptx_files(file_paths)
 
-    # for file_path in file_paths:
-    #     # CHANGE THESE VALUES AS PER NEED
-    #     # create_parent_child_vectorstore(file_path, False, False)
-    #     print("Vector Store and Doc store created for --> ", file_path)
+    for file_path in file_paths:
+        create_parent_child_vectorstore(file_path, False, False)
+        print("Vector Store and Doc store created for --> ", file_path)

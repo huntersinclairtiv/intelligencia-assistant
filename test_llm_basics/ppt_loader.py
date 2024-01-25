@@ -10,11 +10,9 @@ from tabulate import tabulate
 from bs4 import BeautifulSoup
 from langchain.docstore.document import Document
 from langchain.document_loaders import UnstructuredFileLoader
-from langchain.vectorstores.faiss import FAISS
 
 import open_ai_util
 import paragraph_parser
-import custom_embeddings
 import supabase_docstore as custom_supabase
 import chroma_db_util
 
@@ -22,57 +20,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-count = 0
-company_handbook_faiss_path = "./faiss_company_handbook"
-embeddings = custom_embeddings.CustomFaissEmbeddings()
+image_count = 0
+image_folder = 'ppt_images'
 documents_table = os.environ.get('SUPABASE_DOCUMENTS_TABLE', '')
 embeddings_table = os.environ.get('SUPABASE_EMBEDDINGS_TABLE', '')
 store = custom_supabase.SupabaseDocstore(documents_table)
-title_mappings = {}
-
-
-def remove_folder(path):
-    try:
-        shutil.rmtree(path)
-        print(f"Successfully removed folder at {path}")
-    except Exception as e:
-        print(f"Error while removing folder at {path}: {e}")
-
-
-def save_faiss_locally(vectorstore, path: str):
-    """
-    This function saves a vectorstore locally at a specified path and prints a confirmation message.
-
-    """
-    vectorstore.save_local(path)  # type: ignore
-
-    print(f"Vectorstore saved locally")
-
-
-def merge_with_old_vectorstore(new_vectorstore):
-    """
-    This function merges a new vectorstore with an old vectorstore, saves the merged vectorstore
-    locally, and removes the old vectorstore.
-
-    """
-    old_vectorstore = None
-    try:
-        old_vectorstore = FAISS.load_local(
-            company_handbook_faiss_path, embeddings)
-    except Exception as e:
-        print(e)
-    if old_vectorstore:
-        old_vectorstore.merge_from(new_vectorstore)
-        print("Vectorstores merged.")
-        remove_folder(company_handbook_faiss_path)
-
-    save_faiss_locally(old_vectorstore or new_vectorstore,
-                       company_handbook_faiss_path)
-
-    return old_vectorstore or new_vectorstore
 
 
 def pptx_table_to_html(table):
+    """
+    Accepts a Table object from the pptx and returns a Html table generated from it
+    """
     rows = []
     for row in table.rows:
         cells = [cell.text for cell in row.cells]
@@ -83,7 +41,12 @@ def pptx_table_to_html(table):
 
 
 def process_shapes(slide, page_number, skip_text=None):
+    """
+    Extracts data from the slide/Group Shapes and returns a List of Document(s)
+    """
     global count
+    if not os.path.exists(image_folder):
+        os.makedirs(image_folder)
     parsed_docs = []
     run_text = ""
     for shape in slide.shapes:
@@ -91,17 +54,16 @@ def process_shapes(slide, page_number, skip_text=None):
             'category': shape.shape_type,
             'page_number': page_number
         }
-        h.add(shape.shape_type)
         page_content = ''
         if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
             # TODO:: Handle cases when the image has charts,tables etc
             page_content = ''  # This could be updated if needed
-            metadata['image_path'] = f'test_{count}.jpeg'
+            metadata['image_path'] = f'{image_folder}/img_{image_count}.jpeg'
             # metadata['cordinates'] # TODO:: Add support for narrative text via coridinates if possible
-            with open(f'test_{count}.jpeg', 'wb') as f:
+            with open(metadata['image_path'], 'wb') as f:
                 f.write(shape.image.blob)
-                # PARSE IMAGE VIA UNSTRUCTURED HERE
-                count += 1
+                #TODO:: VERIFY IF PARSING IMAGE VIA UNSTRUCTURED HERE IS MORE REASONABLE
+                image_count += 1
             parsed_docs.append(Document(page_content='', metadata=metadata))
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             # this will add the groups as parent doc as well
@@ -131,7 +93,7 @@ def process_shapes(slide, page_number, skip_text=None):
 
 def process_pptx_files(filepath_list):
     """
-    Loads list pptx files in the form of key value pairs 
+    Process a pptx file and returns a List of Documents(s)
     """
     for file in filepath_list:
         f = open(f'{file}', "rb")
@@ -161,6 +123,10 @@ def process_pptx_files(filepath_list):
 
 
 def process_ppt_via_unstructured(file_path):
+    """
+    Process ppt files via UnstructuredFileLoader
+    # CURRENTLY NOT IN USE
+    """
     docs = UnstructuredFileLoader(
         file_path=file_path,
         strategy='hi_res',
@@ -210,6 +176,9 @@ def process_ppt_via_unstructured(file_path):
 
 
 def index_doc_for_parent_child_retriever(docs):
+    """
+    Accepts a list of Document(s) and creates vectorstore and doc store for it
+    """
     parent_doc_list = []
     child_doc_list = []
     ppt_title = None

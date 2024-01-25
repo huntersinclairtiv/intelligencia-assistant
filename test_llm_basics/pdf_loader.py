@@ -1,39 +1,30 @@
 import spacy
 import fitz  # pip install PyMuPDF
-from PIL import Image
 import sys
 from langchain.storage import LocalFileStore
 from langchain.storage._lc_store import create_kv_docstore
-# from rag_fusion.chain import chain as rag_fusion_chain
 import os
 import openpyxl
-import json
 import functools
 import shutil
-from datetime import datetime, timedelta
-import time
 import uuid
 
-from langchain.chains import RetrievalQA, HypotheticalDocumentEmbedder
-from langchain.callbacks import get_openai_callback
-from langchain.chat_models import ChatOpenAI
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
 from supabase.client import Client, create_client
-from langchain.retrievers import ParentDocumentRetriever
 from langchain.storage import InMemoryStore
 from langchain.text_splitter import *
 from langchain.vectorstores.faiss import FAISS
 from langchain.docstore.document import Document
-from langchain.document_loaders import UnstructuredFileLoader, UnstructuredURLLoader
+from langchain.document_loaders import UnstructuredFileLoader
 import tensorflow as tf
 import numpy as nf
 import tensorflow_hub as hub
-from langchain_core.embeddings import Embeddings
 
 import open_ai_util as open_ai_integration
 import supabase_docstore as custom_supabase
 import paragraph_parser as custom_text_parser
+import chroma_db_util
 import custom_embeddings
 import constants
 
@@ -42,8 +33,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-llm_model_type = "gpt-4-1106-preview"
-llm = ChatOpenAI(max_retries=3, model=llm_model_type)
 embeddings = custom_embeddings.CustomFaissEmbeddings()
 openai_embeddings = OpenAIEmbeddings()
 company_handbook_faiss_path = "./faiss_company_handbook"
@@ -89,27 +78,6 @@ def create_supabase_vectorstore(docs, table_name, use_local_embedding=False):
     return vectorstore
 
 
-def initialize_vectorstore(input, supabase):
-    """
-    This function initializes a vector store using FAISS from input text documents and embeddings.
-    """
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=700, chunk_overlap=200)
-    texts = ""
-    vectorstore = None
-    if (input is not None):
-        texts = text_splitter.split_documents(input)
-        for text in texts:
-            print(text)
-    if supabase:
-        vectorstore = create_supabase_vectorstore(texts)
-    else:
-        vectorstore = FAISS.from_documents(texts, embeddings)
-    print("Vectorstore created.")
-
-    return vectorstore
-
-
 def remove_folder(path):
     try:
         shutil.rmtree(path)
@@ -128,19 +96,11 @@ def save_faiss_locally(vectorstore, path: str):
     print(f"Vectorstore saved locally")
 
 
-def get_vectorstore_retriever(index_path: str):
-    """
-    This function returns a retriever object for a vector store index, loaded from a path (string) using
-    Meta's FAISS library.
-    """
-    return FAISS.load_local(index_path, embeddings=embeddings).as_retriever()
-
-
 def merge_with_old_vectorstore(new_vectorstore):
     """
     This function merges a new vectorstore with an old vectorstore, saves the merged vectorstore
     locally, and removes the old vectorstore.
-
+    # CURRENTLY NOT IN USE
     """
     old_vectorstore = None
     try:
@@ -157,15 +117,6 @@ def merge_with_old_vectorstore(new_vectorstore):
                        company_handbook_faiss_path)
 
     return old_vectorstore or new_vectorstore
-
-
-def format_documents(quick_connectors_data):
-    """
-    ## CURRENTLY NOT IN USE, SHALL BE UPDATED LATER  
-    """
-    document = Document(page_content=quick_connectors_data.pop(
-        'text'), metadata=quick_connectors_data)
-    return document
 
 
 def process_excel_file(file_path):
@@ -202,40 +153,6 @@ def process_csv_files(csv_file_path):
                     f'On {date}, sales in the {area} area by the dealer {dealer} were {sales}. \n')
             is_header = False
     return f'tmp_transformed.txt'
-
-
-def create_and_merge(path, mode='single'):
-    """
-    creates a vector store and merges it with existing vector store
-    # CURRENTLY NOT IN USE, SHALL BE UPDATED LATER
-    """
-    # _, file_extension = os.path.splitext(path)
-    # if file_extension.lower() == ".csv":
-    #     path = process_csv_files(path)
-    # elif file_extension.lower() == ".xlsx":
-    #     path = process_excel_file(path)
-    # print(file_extension)
-    # print(path)
-    document = UnstructuredFileLoader(
-        file_path=path,
-        strategy='hi_res',
-        mode=mode,
-        skip_infer_table_types=[],
-        pdf_infer_table_structure=True,
-        pdf_extract_images=True
-    ).load()
-    new_vectorstore = initialize_vectorstore(document, False)
-    return merge_with_old_vectorstore(new_vectorstore)
-
-
-def write_image_to_file(picture, file_path):
-    image = picture.image
-    # ---get image "file" contents---
-    image_bytes = image.blob
-    # ---make up a name for the file, e.g. 'image.jpg'---
-    image_filename = 'image.%s' % image.ext
-    with open(image_filename, 'wb') as f:
-        f.write(image_bytes)
 
 
 def process_extracted_files(image_path_list):
@@ -434,47 +351,6 @@ class SentenceAnalyser:
         return all(token.dep_ not in ('punct', 'prep') for token in doc)
 
 
-# sentence_analyser = SentenceAnalyser()
-# p = """
-# Hi My name is Ekansh. Establish a robust foundation of qualitative and quantitative “Voice of Customer” data and
-# insights, spanning perceived value, propensity to pay, demand signals, and other vital
-# """
-# p2 = """
-# DocuSign Envelope ID: 8B1A2840-E81F-4D28-9794-847367538250
-# """
-# print(sentence_analyser.is_complete_sentence(p))
-# print(sentence_analyser.is_complete_sentence(p2))
-
-
-def test_function(docs):
-    last_invalid_sentence = None
-    header = None
-    last_narrative_text = None
-    curr_doc = 0
-    with open('ppt_chunks.txt', 'w')as f:
-        while curr_doc < len(docs):
-            d = docs[curr_doc]
-            page_content = format_bulleted_text(d.page_content)
-            metadata = d.metadata
-            category = metadata['category']
-            table_detals = metadata.get('text_as_html')
-            print(page_content, category)
-            curr_doc += 1
-            f.write(f"CONTENT-->  {page_content}\n")
-            f.write(f"META-->  {metadata['category']}\n")
-            if table_detals:
-                f.write(f"TABLE---> {table_detals}\n")
-
-            # USE NLP FOR THIS LATER
-            # if sentence_analyser.is_complete_sentence(page_content):
-            #     while curr_doc+1 < len(docs) and sentence_analyser.is_complete_sentence(docs[curr_doc+1].page_content):
-            #         curr_doc += 1
-            #     # if page_content ==
-
-            # if category in ['BulletedText', 'List', 'ListItem', 'List-item']:
-            #     print(page_content)
-
-
 def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_local_embeddings=False):
     """
     Takes a file path, creates child chunks and parent documents and loads them to vectorstore and doc store respectively
@@ -647,9 +523,7 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
 
     vectorstore = None
     if use_local_vectorstore:
-        vectorstore = FAISS.from_documents(
-            documents=child_document_list, embedding=embeddings)
-        merge_with_old_vectorstore(vectorstore)
+        vectorstore = chroma_db_util.create_persistent_vector_database(child_document_list)
     else:
         vectorstore = create_supabase_vectorstore(
             child_document_list, embeddings_table, use_local_embeddings)  # using the embeddings table picked from env var

@@ -24,7 +24,7 @@ import tensorflow_hub as hub
 import open_ai_util as open_ai_integration
 import supabase_docstore as custom_supabase
 import paragraph_parser as custom_text_parser
-import chroma_db_util
+from chroma_db_util import ChromaDB
 import custom_embeddings
 import constants
 
@@ -523,7 +523,7 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
 
     vectorstore = None
     if use_local_vectorstore:
-        vectorstore = chroma_db_util.create_persistent_vector_database(
+        vectorstore = ChromaDB().create_persistent_vector_database(
             child_document_list)
     else:
         vectorstore = create_supabase_vectorstore(

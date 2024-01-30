@@ -15,7 +15,7 @@ from langchain.document_loaders import UnstructuredFileLoader
 import open_ai_util
 import paragraph_parser
 import supabase_docstore as custom_supabase
-import chroma_db_util
+from chroma_db_util import ChromaDB
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -81,7 +81,7 @@ def compare(item1, item2):
             return top1-top2
         if horizontal_intersection:
             return left1-left2
-        
+
         if left1 <= left2:
             # FIRST IS ON LEFT OF SECOND and top1 > top2
             # LETS RETURN FIRST AS OF NOW
@@ -389,9 +389,10 @@ def index_doc_for_parent_child_retriever(docs):
             #     Document(page_content=table, metadata=metadata)
             # ))
             parent_doc_text += f'\n{table}\n'
-            child_doc_list.extend(open_ai_util.get_table_description(table=table, header=ppt_title, metadata=metadata))
+            child_doc_list.extend(open_ai_util.get_table_description(
+                table=table, header=ppt_title, metadata=metadata))
         elif image_path:
-            # DO NOT PARSE IMAGES AS OF NOW
+            # # DO NOT PARSE IMAGES AS OF NOW
             image_data, image_child_chunks = process_image(
                 image_path, metadata)
             # larger_chunk += image_data # larger_chunk #WE DO NOT WANT TO GENERATE SUMMARIES FOR THE IMAGES AS WELL AS OF NOW IN THE PARENT DOC AS WELL
@@ -431,13 +432,18 @@ def index_doc_for_parent_child_retriever(docs):
     with open('parent_list_ppt.txt', 'w') as f:
         for _, d in parent_doc_list:
             f.write(f'{d.page_content}\n\n')
-    chroma_db_util.create_persistent_vector_database(docs=child_doc_list)
+    ChromaDB().create_persistent_vector_database(docs=child_doc_list)
     store.mset(parent_doc_list)
+
+
+def update_metadata(docs, file_path):
+    # Further modifications could be done here.
+    for doc in docs:
+        doc.metadata['source'] = file_path
+    return docs
 
 
 def process(file_path):
     docs = process_pptx_files(file_path)
+    docs = update_metadata(docs, file_path)
     index_doc_for_parent_child_retriever(docs)
-
-
-# process('test_docs/TEST_TEXT_PARSING.pptx')

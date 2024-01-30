@@ -28,4 +28,3 @@ if __name__ == "__main__":
             print(f'Encountered \n {e} for file \n {file_path}')
     if failed_files:
         print("FOLLOWING FILES COULD NOT BE PARSED CORRECTLY", failed_files)
-

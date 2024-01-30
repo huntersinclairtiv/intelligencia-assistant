@@ -3,7 +3,7 @@ import os
 from langchain_community.utilities.sql_database import SQLDatabase
 from langchain_core.documents import Document
 
-import chroma_db_util
+from chroma_db_util import ChromaDB
 import open_ai_util
 
 from dotenv import load_dotenv
@@ -109,13 +109,13 @@ def create_database_documents(table_name_list):
 def create_vector_store(table_list):
     docs = create_database_documents(table_list)
     print('DOCUMENTS LOADED')
-    vectorstore = chroma_db_util.create_persistent_vector_database(docs)
+    vectorstore = ChromaDB().create_persistent_vector_database(docs)
     print('VECTORSTORE CREATED')
     return vectorstore
 
 
 def answer_queries(query):
-    vectorstore = chroma_db_util.get_persistent_vector_database()
+    vectorstore = ChromaDB().get_persistent_vector_database()
     retrieved_docs = vectorstore.as_retriever().get_relevant_documents(query)
     retrieved_tables = {
         retrieved_doc.metadata['table_name'] for retrieved_doc in retrieved_docs}

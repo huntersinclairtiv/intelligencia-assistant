@@ -4,7 +4,7 @@
 ### SETUP
 - Install the requirements using:
 ```
-pip install -r requirements.txt; pip install sqlalchemy --upgrade;
+cd test_llm_basics; pip install -r new_requirements.txt; pip install sqlalchemy --upgrade;
 ```
 - Create a .env file using the following command and fill out the values for the same:
 ```shell

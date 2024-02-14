@@ -278,17 +278,17 @@ def process_image_overlaps(cor_list, image_path_mapping):
     return final_image_path_list
 
 
-def get_pdf_page_size(file_path):
-    # Look if this can be utilised
-    pdf_document = fitz.open(file_path)
-    page_heights = {}
-    for page_number, page in enumerate(pdf_document):
-        page = pdf_document[page_number]
-        media_box = page.mediabox
-        height_in_points = media_box.height
-        page_heights[page_number] = height_in_points
-    pdf_document.close()
-    return page_heights
+# def get_pdf_page_size(file_path):
+#     # Look if this can be utilised
+#     pdf_document = fitz.open(file_path)
+#     page_heights = {}
+#     for page_number, page in enumerate(pdf_document):
+#         page = pdf_document[page_number]
+#         media_box = page.mediabox
+#         height_in_points = media_box.height
+#         page_heights[page_number] = height_in_points
+#     pdf_document.close()
+#     return page_heights
 
 
 def detect_header_and_footer(doc):
@@ -361,7 +361,6 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         strategy='hi_res',
         mode='elements',
         include_slide_notes=True,  # WILL INCLUDE READER NOTES AS WELL
-        include_page_breaks=True,
         skip_infer_table_types=[],
         pdf_infer_table_structure=True,
         pdf_extract_images=True,
@@ -416,11 +415,15 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
                         create_summary
                     ))
                 else:
+                    # STORE THE ENTIRE CHUNK AS A CHILD?
+                    # NO NEED TO GENERATE SUMMARY?
                     d.metadata['doc_id'] = d.metadata['id']
-                    child_document_list.extend(Document(
-                        page_content=parent_doc,
-                        metadata=d.metadata
-                    ))
+                    child_document_list.extend(
+                        custom_text_parser.parse_paragraph(parent_doc, d.metadata))
+                    # child_document_list.append(Document(
+                    #     page_content=parent_doc,
+                    #     metadata=d.metadata
+                    # ))
 
             doc_id = str(uuid.uuid4())
             curr_chunk = ""
@@ -493,10 +496,12 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
             ))
         else:
             d.metadata['doc_id'] = d.metadata['id']
-            child_document_list.extend(Document(
-                page_content=parent_doc,
-                metadata=d.metadata
-            ))
+            child_document_list.extend(
+                custom_text_parser.parse_paragraph(parent_doc, d.metadata))
+            # child_document_list.append(Document(
+            #     page_content=parent_doc,
+            #     metadata=d.metadata
+            # ))
         # if len(curr_chunk) > 300:  # temporarily do not summarise small paragraphs
         #     child_document_list.extend(
         #         open_ai_integration.get_paragraph_description(curr_chunk, d.metadata, len(curr_chunk) > 300))
@@ -514,6 +519,14 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
         child_document_list.extend(child_doc_list_from_images)
         larger_document_list.extend(parent_doc_list_from_images)
     # # # TODO: improve this to pass in parent document
+
+    # CHROMA LIMITATION
+    # CHROMA EXPECTS THE METADATA VALUES TO BE OF str,int, float or bool
+    for doc in child_document_list:
+        for key, value in doc.metadata.items():
+            if not isinstance(value, (str, int, float, bool)):
+                doc.metadata[key] = str(value)
+    # CHROMA LIMITATION
 
     # Writes down all the chunks into child_list.txt file
     # Helpful for debugging
@@ -534,5 +547,6 @@ def create_parent_child_vectorstore(file_path, use_local_vectorstore=False, use_
 
 
 def process(file_path):
-    create_parent_child_vectorstore(file_path, False, False)
+    create_parent_child_vectorstore(file_path, True, True) # UPDATE THIS TO USE OPEN AI EMBEEDINGS AND SUPABASE VECTORSTORE
+    # UPDATING THIS WILL NOT BE NEEDED NOW AS THE PARENT
     print("Vector Store and Doc store created for --> ", file_path)

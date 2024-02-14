@@ -11,7 +11,7 @@ from supabase.client import Client, create_client
 
 import supabase_docstore as custom_docstore
 import custom_embeddings
-import chroma_db_util
+from chroma_db_util import ChromaDB
 
 
 from dotenv import load_dotenv
@@ -40,24 +40,15 @@ def get_supabase_vectorstore(table_name, match_function):
     )
 
 
-def process_queries(query_list):
-    """
-    Accepts a list of queries and writes the responses generated, under the outputs directory
-    """
-    store = custom_docstore.SupabaseDocstore(documents_table)
-    vectorstore = chroma_db_util.get_persistent_vector_database()
-    retriever = ParentDocumentRetriever(
-        vectorstore=vectorstore,
-        docstore=store,
-        child_splitter=RecursiveCharacterTextSplitter(
-            chunk_size=100, chunk_overlap=20),
-        parent_splitter=RecursiveCharacterTextSplitter(
-            chunk_size=4000, chunk_overlap=200)
-    )
-    directory_path = 'outputs'
+def initialize_output_dir(directory_path='outputs'):
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
+    return directory_path
+
+
+def answer_queries(query_list, retriever, directory_path):
     for ques in query_list:
+        print(retriever.get_relevant_documents(ques))
         qa = RetrievalQA.from_llm(
             llm=llm, retriever=retriever, return_source_documents=True)
         with get_openai_callback() as cb:
@@ -67,14 +58,29 @@ def process_queries(query_list):
             print("answered ", ques)
 
 
+def process_queries(query_list):
+    """
+    Accepts a list of queries and writes the responses generated, under the outputs directory
+    """
+    store = custom_docstore.SupabaseDocstore(documents_table)
+    vectorstore = ChromaDB().get_persistent_vector_database()
+    retriever = ParentDocumentRetriever(
+        vectorstore=vectorstore,
+        docstore=store,
+        child_splitter=RecursiveCharacterTextSplitter(
+            chunk_size=100, chunk_overlap=20),
+        parent_splitter=RecursiveCharacterTextSplitter(
+            chunk_size=4000, chunk_overlap=200)
+    )
+    directory_path = initialize_output_dir()
+    answer_queries(query_list, retriever, directory_path)
+
+
 if __name__ == "__main__":
 
     query_list = [
-        # "Summarize the Project Objectives in less than 100 words."
-        # "Provide me the name and designation of the people who signed the agreement"
-        # "When was the agreement signed?"
-        "What was the total payment? Also provide a complete breakdown of the payment"
-        # Add or remove questions from here and the corresponding output file will be generated under the 'outputs' folder
+        "What were the program objectives?",
+        # "<ADD MORE QUESTIONS HERE>"
     ]
 
     process_queries(query_list)

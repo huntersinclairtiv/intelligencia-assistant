@@ -12,6 +12,9 @@ from openai import OpenAI
 
 import paragraph_parser as custom_parser
 
+from dotenv import load_dotenv
+load_dotenv()
+
 
 def encode_image(image_path):
     with open(image_path, 'rb') as image_file:
@@ -268,29 +271,60 @@ def get_llm_response(context, question):
     return response.choices[0].message.content
 
 
-def query():
-    PROMPT = """
-    Using the given **context**, answer the following **query**.
-    context:
-    I want to index my RDS database to implement a Retrieveal Augmeneted Generator Model.
-    While exploring, I came across a few tools such as pgvector to store embeddings in the same RDS database.
-    However I am confused on what will be the data/(exact sentence or keywords) 
-    that I'll create embeddings from as embedding an entire row might cause into loss of relations If foreign keys are present.
-    **query**:
-    1). What data should I create embeddings from ?
-    2). What can be other strategies to solve the entire issue of indexing RDS database of RAG? I am open to any sort of solution that would work.
+def generate_df_query(sample_rows, indexed_columns, fuzzy_function_def, user_query):
+    SYSTEM_PROMPT = f"""
+    You are working with a pandas dataframe in Python. The name of the dataframe is `df`.
+    It is important to understand the attributes of the dataframe before working with it. This is the result of running `df.head().to_markdown()`
+
+    {sample_rows}
+    
+    You also have a function named 'fuzzy' with the following function definition:
+    {fuzzy_function_def}
+    Use this function to get the key for matching a row when searching for the one of the following columns: {indexed_columns}
+
+    Your task is to generate Python code for the query by user.
+    Do not include any explanation or comments in the response.
+    Always print the final response in the code.
+    The response should only contain the python code, without any explicit usage of ```python```.
+    Sample Response:
+    key = fuzzy("Name", "Miss. Bonnell")
+    gender = df.loc[df['Name'] == key, 'Sex'].values[0]
+    print("geneder for",key, "is", gender)
     """
+    model = 'gpt-4-1106-preview'
+    messages = [
+        {
+            "role": "system",
+            "content": [
+                {"type": "text", "text": SYSTEM_PROMPT}
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_query}
+            ],
+        }
+    ]
+    response = get_openai_respone(messages, model, 1000)
+    print("RESPONSE FOR QUERY--> \n", response.choices[0].message.content)
+    return response.choices[0].message.content
+
+
+def query(prompt):
     model = 'gpt-4-1106-preview'
     messages = [
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": PROMPT}
+                {"type": "text", "text": prompt}
             ],
         }
     ]
     response = get_openai_respone(messages, model, 1000)
     print(response)
+    print("RESPONSE FOR QUERY--> ", response.choices[0].message.content)
+    return response.choices[0].message.content
 
 
 def get_ques_list_for_rds_table(command):
@@ -421,3 +455,39 @@ def ppt_slide_parser(ppt_title, slide_text, generate_summary=False, metadata={})
         ppt_title=ppt_title, slide_text=slide_text, metadata=metadata))
     return docs
 
+
+# d = """
+# System: you are a helpful assistant that generated chroma db filters based on the following information:
+# The Summary for conversations on each day is stored in Chromadb and to distinguish we have two fields in the metadata: 
+# boolean field, is_summary: True if the content is a summary, and False if the content if not a summary
+# String field, date: the date in DD/MM/YYYY format representing that the summary is for that date.
+
+# I want you to create filters based on the query generated if that would help in better results.
+
+# Sample response when generating the filter is optimal:
+
+# 'query': Summarize the conversation from the last 5 days.
+# 'response: {
+#     "$and": [
+#         {
+#             "is_summary": True
+
+#         },
+#         {
+#             "date": {
+#                 "$gte": 20240205
+#             }
+#         }
+#     ]
+# }
+
+# Sample response when generating the filter is not required:
+# query: What was the summary of the conversation between John and Jacob.
+# response: {}
+
+# Current date is 06/02/2024 and single digit representation for this would be, 20240206,(YYYDDMM)
+
+# User: What was the summary for the meeting?
+
+# """
+# query(d)

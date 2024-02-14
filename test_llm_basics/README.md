@@ -2,6 +2,10 @@
 
 
 ### SETUP
+- Install the requirements using:
+```
+pip install -r requirements.txt; pip install sqlalchemy --upgrade;
+```
 - Create a .env file using the following command and fill out the values for the same:
 ```shell
 echo -e "SUPABASE_URL=\nSUPABASE_KEY=\nSUPABASE_DOCUMENTS_TABLE=\nSUPABASE_EMBEDDINGS_TABLE=\nSUPABASE_QUERY_NAME=\nOPENAI_API_KEY=\n" > .env
@@ -36,3 +40,18 @@ echo -e "SUPABASE_URL=\nSUPABASE_KEY=\nSUPABASE_DOCUMENTS_TABLE=\nSUPABASE_EMBED
   python retriever.py
   ```
 - The response to each of the query will be written under a seperate file inside of the 'outputs' dir.
+
+- Note: The above flow can be used for .pptx and .pdf files as of now. 
+
+### USING CSV FLOW
+The entire flow for CSV parsing and retrival is inside of csv_loader.py[] file.
+Currently we make use of the infamous Titanic Datatset. 
+To See its working run 
+- ```
+  cd test_llm_basics;
+  python csv_loader.py
+  ```
+- The csv retiever is currently in very basic POC state.
+
+### USING SQL FLOW
+The flow is under POC as of now and needs improvements. Usage not recommended.

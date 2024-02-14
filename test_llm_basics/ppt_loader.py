@@ -94,8 +94,6 @@ def compare(item1, item2):
         # IF NOTHING RESOLVES IT, RETURN ON THE BASIS ON INSERTION ORDER ITSELF
         return index1 - index2
 
-        # HANDLE HORIZONTAL CASES
-
 
 def preprocess_slide_layout(slide):
     """
@@ -273,21 +271,24 @@ def preprocess_image_on_size_and_words(image_path):
     size_in_kb = os.stat(image_path).st_size/1024
     image_data = None
     word_count = None
-    if size_in_kb < 50:
-        image_data = UnstructuredFileLoader(
-            file_path=image_path,
-            strategy='hi_res',
-            # mode='elements',
-            include_slide_notes=True,  # WILL INCLUDE READER NOTES AS WELL
-            include_page_breaks=True,
-            skip_infer_table_types=[],
-            pdf_infer_table_structure=True,
-            pdf_extract_images=True,
-            chunking_strategy='by-title'
-        ).load()[0].page_content
-        word_count = paragraph_parser.get_word_count(image_data)
-        if word_count < 5 or word_count > 200:
-            return image_data
+    image_data = UnstructuredFileLoader(
+        file_path=image_path,
+        strategy='hi_res',
+        # mode='elements',
+        include_slide_notes=True,  # WILL INCLUDE READER NOTES AS WELL
+        include_page_breaks=True,
+        skip_infer_table_types=[],
+        pdf_infer_table_structure=True,
+        pdf_extract_images=True,
+        chunking_strategy='by-title'
+    ).load()[0].page_content
+    word_count = paragraph_parser.get_word_count(image_data)
+    print('SIZE-->', size_in_kb, 'COUNT--> ', word_count, image_data)
+    if size_in_kb > 50 and word_count in range(4, 150):
+        # SIZE IS LESS GREATER THAN 50 KB AND WORDS ARE IN BETWEEN [5,150)
+        return (True, None)
+
+    return (False, image_data)
 
 
 def process_image_via_llm(image_path, metadata):
@@ -316,13 +317,17 @@ def process_image(image_path, metadata):
     """
     Exracts data from the image and returns the data from the image and list of child chunks 
     """
-    image_data = preprocess_image_on_size_and_words(image_path)
+    process_via_llm, image_data = preprocess_image_on_size_and_words(
+        image_path)
     child_doc_list = []
-    if not image_data:
+    if process_via_llm:
         # Generate questions and answers via llm
         image_data, child_doc_list = process_image_via_llm(
             image_path, metadata)
-
+    elif image_data:
+        # IMAGE MIGHT NOT CONTAIN ANY DATA, IN CASE OF LOGO,
+        child_doc_list.extend(
+            paragraph_parser.parse_paragraph(image_data, metadata))
     return (image_data, child_doc_list)
 
 
@@ -392,13 +397,14 @@ def index_doc_for_parent_child_retriever(docs):
             child_doc_list.extend(open_ai_util.get_table_description(
                 table=table, header=ppt_title, metadata=metadata))
         elif image_path:
-            # # DO NOT PARSE IMAGES AS OF NOW
+            # THIS HAS NOT BEEN TESTED WELL, MIGHT CAUSE ISSUES
             image_data, image_child_chunks = process_image(
                 image_path, metadata)
-            # larger_chunk += image_data # larger_chunk #WE DO NOT WANT TO GENERATE SUMMARIES FOR THE IMAGES AS WELL AS OF NOW IN THE PARENT DOC AS WELL
-            parent_doc_text += f'\n{image_data}\n'
-            # Handle case when child_chunks = None
-            child_doc_list.extend(image_child_chunks)
+            if image_data:
+                # larger_chunk += image_data # larger_chunk #WE DO NOT WANT TO GENERATE SUMMARIES FOR THE IMAGES AS WELL AS OF NOW IN THE PARENT DOC AS WELL
+                parent_doc_text += f'\n{image_data}\n'
+                # Handle case when child_chunks = None
+                child_doc_list.extend(image_child_chunks)
 
         if len(larger_chunk) > 4000:
             child_doc_list.extend(open_ai_util.ppt_slide_parser(
@@ -426,14 +432,7 @@ def index_doc_for_parent_child_retriever(docs):
                 slide_text=larger_chunk,
                 generate_summary=generate_summary
             ))
-    with open('child_list_ppt.txt', 'w') as f:
-        for d in child_doc_list:
-            f.write(f'{d.page_content}\n\n')
-    with open('parent_list_ppt.txt', 'w') as f:
-        for _, d in parent_doc_list:
-            f.write(f'{d.page_content}\n\n')
-    ChromaDB().create_persistent_vector_database(docs=child_doc_list)
-    store.mset(parent_doc_list)
+    return (parent_doc_list, child_doc_list)
 
 
 def update_metadata(docs, file_path):
@@ -445,5 +444,17 @@ def update_metadata(docs, file_path):
 
 def process(file_path):
     docs = process_pptx_files(file_path)
-    docs = update_metadata(docs, file_path)
-    index_doc_for_parent_child_retriever(docs)
+    parent_doc_list, child_doc_list = index_doc_for_parent_child_retriever(
+        docs)
+    with open('child_list_ppt.txt', 'w') as f:
+        for d in child_doc_list:
+            f.write(f'{d.page_content}\n\n')
+    with open('parent_list_ppt.txt', 'w') as f:
+        for _, d in parent_doc_list:
+            f.write(f'{d.page_content}\n\n')
+    # THIS IS NEEDE FOR THE ROLL BACK FUNCTIONALITY
+    child_doc_list = update_metadata(child_doc_list, file_path)
+    ChromaDB().create_persistent_vector_database(docs=child_doc_list)
+    store.mset(parent_doc_list)
+
+
